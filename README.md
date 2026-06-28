@@ -60,7 +60,7 @@ A Telegram bot that connects to locally running LLMs (via LM Studio) to provide 
 6. Update the `AVAILABLE_MODELS` dictionary in the bot script to match the models you have loaded in LM Studio.
 
 7. Run the bot:
-   python telegram-local-llm-bot.py
+   `python telegram-local-llm-bot.py`
 
 ## Usage
 
