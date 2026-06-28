@@ -1,0 +1,9 @@
+python-telegram-bot
+requests
+pymupdf
+python-dotenv
+sentence-transformers
+faster-whisper
+numpy
+pypdf
+python-docx

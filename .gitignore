@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 venv/
 .vscode/
+backups/
+rag_files/
+*.sqlite3
