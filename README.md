@@ -109,3 +109,5 @@ A Telegram bot that connects to locally running LLMs (via LM Studio) to provide 
 
 **ArtjomsS53**
 Educational project exploring local LLM integration, Telegram bot development, RAG memory systems, and API communication between Python and LM Studio.
+
+Built with the help of Claude and ChatGPT for code generation, debugging, and architecture decisions.
