@@ -31,7 +31,7 @@ def project_path(path):
         return path
     return os.path.join(PROJECT_DIR, path)
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from faster_whisper import WhisperModel
 
 try:
@@ -45,6 +45,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Cal
 conversation_history = {}
 user_selected_model = {}
 pending_user_content = {}  # Сообщения, ожидающие выбора модели
+last_user_content = {}
+last_bot_response = {}
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
@@ -160,54 +162,6 @@ def migrate_old_rag_db_if_needed():
 
     except Exception as e:
         print(f"RAG: не удалось перенести старую базу: {e}")
-
-def init_rag_db():
-    """Создаёт SQLite-базу для локальной памяти документов."""
-    migrate_old_rag_db_if_needed()
-    os.makedirs(os.path.dirname(os.path.abspath(RAG_DB_PATH)), exist_ok=True)
-
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS rag_chunks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id TEXT NOT NULL,
-                source_name TEXT NOT NULL,
-                chunk_index INTEGER NOT NULL,
-                chunk_hash TEXT NOT NULL,
-                text TEXT NOT NULL,
-                embedding BLOB NOT NULL,
-                created_at INTEGER NOT NULL,
-                UNIQUE(chat_id, chunk_hash)
-            )
-            """
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_rag_chat_id ON rag_chunks(chat_id)")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS rag_settings (
-                chat_id TEXT PRIMARY KEY,
-                rag_only INTEGER NOT NULL DEFAULT 0,
-                updated_at INTEGER NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS bot_users (
-                chat_id TEXT PRIMARY KEY,
-                user_id TEXT,
-                username TEXT,
-                first_name TEXT,
-                last_name TEXT,
-                first_seen_at INTEGER NOT NULL,
-                last_seen_at INTEGER NOT NULL,
-                message_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        conn.commit()
-
 
 def get_embedding_model():
     """Ленивая загрузка модели embeddings, чтобы бот быстрее стартовал."""
@@ -527,50 +481,6 @@ def extract_text_from_file(file_path, file_name):
     )
 
 
-def add_text_to_rag(chat_id, source_name, text):
-    """Добавляет текст в RAG-память конкретного Telegram-чата."""
-    init_rag_db()
-
-    text = clean_text(text)
-    chunks = split_text_into_chunks(text)
-
-    if not chunks:
-        return 0
-
-    embeddings = embed_texts(chunks)
-    now = int(time.time())
-    inserted_count = 0
-
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            chunk_hash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
-            try:
-                conn.execute(
-                    """
-                    INSERT INTO rag_chunks
-                    (chat_id, source_name, chunk_index, chunk_hash, text, embedding, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        str(chat_id),
-                        source_name,
-                        index,
-                        chunk_hash,
-                        chunk,
-                        embedding.astype(np.float32).tobytes(),
-                        now,
-                    )
-                )
-                inserted_count += 1
-            except sqlite3.IntegrityError:
-                # Такой же кусок уже есть в памяти этого чата.
-                pass
-        conn.commit()
-
-    return inserted_count
-
-
-
 def extract_keywords(query):
     """Достаёт ключевые слова/коды из запроса для keyword-части гибридного поиска."""
     if not isinstance(query, str):
@@ -625,60 +535,6 @@ def calculate_keyword_score(query, text):
         phrase_boost = 0.35
 
     return min(1.0, token_score * 0.75 + important_boost + phrase_boost)
-
-
-def rank_rag_chunks(chat_id, query, top_k=RAG_TOP_K, include_below_min=False):
-    """
-    Гибридный поиск по RAG:
-    - semantic score через embeddings
-    - keyword score по точным словам/кодам
-    Возвращает список dict с комбинированной оценкой.
-    """
-    if not isinstance(query, str) or len(query.strip()) < 3:
-        return []
-
-    init_rag_db()
-
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        rows = conn.execute(
-            "SELECT source_name, chunk_index, text, embedding FROM rag_chunks WHERE chat_id = ?",
-            (str(chat_id),)
-        ).fetchall()
-
-    if not rows:
-        return []
-
-    query_embedding = embed_texts([query])[0]
-    ranked = []
-
-    for source_name, chunk_index, text, embedding_blob in rows:
-        chunk_embedding = np.frombuffer(embedding_blob, dtype=np.float32)
-        if chunk_embedding.size != query_embedding.size:
-            semantic_score = 0.0
-        else:
-            semantic_score = float(np.dot(query_embedding, chunk_embedding))
-
-        keyword_score = calculate_keyword_score(query, text)
-        hybrid_score = (semantic_score * RAG_SEMANTIC_WEIGHT) + (keyword_score * RAG_KEYWORD_WEIGHT)
-
-        # Если keyword очень сильный, поднимаем фрагмент даже при слабом embedding.
-        if keyword_score >= 0.65:
-            hybrid_score = max(hybrid_score, keyword_score)
-
-        if include_below_min or semantic_score >= RAG_MIN_SCORE or keyword_score >= 0.35 or hybrid_score >= RAG_MIN_SCORE:
-            ranked.append(
-                {
-                    "score": hybrid_score,
-                    "semantic_score": semantic_score,
-                    "keyword_score": keyword_score,
-                    "source_name": source_name,
-                    "chunk_index": chunk_index,
-                    "text": text,
-                }
-            )
-
-    ranked.sort(key=lambda item: item["score"], reverse=True)
-    return ranked[:top_k]
 
 
 def search_rag_with_sources(chat_id, query, top_k=RAG_TOP_K):
@@ -783,93 +639,6 @@ def build_rag_system_message(rag_context, rag_only=False):
     )
 
 
-def get_rag_stats(chat_id):
-    init_rag_db()
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        total_chunks = conn.execute(
-            "SELECT COUNT(*) FROM rag_chunks WHERE chat_id = ?",
-            (str(chat_id),)
-        ).fetchone()[0]
-        sources = conn.execute(
-            """
-            SELECT source_name, COUNT(*)
-            FROM rag_chunks
-            WHERE chat_id = ?
-            GROUP BY source_name
-            ORDER BY MAX(created_at) DESC
-            """,
-            (str(chat_id),)
-        ).fetchall()
-    return total_chunks, sources
-
-
-def get_rag_documents(chat_id):
-    """Возвращает список документов в RAG-памяти этого чата."""
-    init_rag_db()
-
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        rows = conn.execute(
-            """
-            SELECT
-                source_name,
-                COUNT(*) AS chunks_count,
-                MIN(created_at) AS first_added_at,
-                MAX(created_at) AS last_added_at
-            FROM rag_chunks
-            WHERE chat_id = ?
-            GROUP BY source_name
-            ORDER BY last_added_at DESC
-            """,
-            (str(chat_id),)
-        ).fetchall()
-
-    return rows
-
-
-def delete_rag_document(chat_id, source_name):
-    """
-    Удаляет конкретный документ из RAG-памяти.
-    Сначала ищет точное совпадение, потом совпадение без учёта регистра.
-    """
-    init_rag_db()
-    source_name = (source_name or "").strip()
-
-    if not source_name:
-        return 0, None
-
-    documents = get_rag_documents(chat_id)
-
-    matched_name = None
-    for doc_name, *_ in documents:
-        if doc_name == source_name:
-            matched_name = doc_name
-            break
-
-    if matched_name is None:
-        matches = [
-            doc_name
-            for doc_name, *_ in documents
-            if doc_name.casefold() == source_name.casefold()
-        ]
-
-        if len(matches) == 1:
-            matched_name = matches[0]
-
-    if matched_name is None:
-        return 0, None
-
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        cursor = conn.execute(
-            "DELETE FROM rag_chunks WHERE chat_id = ? AND source_name = ?",
-            (str(chat_id), matched_name)
-        )
-        conn.commit()
-        deleted_count = cursor.rowcount
-
-    return deleted_count, matched_name
-
-
-
 def delete_rag_document_by_id(chat_id, doc_id):
     init_rag_db()
     doc = get_document_by_id(chat_id, int(doc_id))
@@ -887,43 +656,6 @@ def delete_rag_document_by_id(chat_id, doc_id):
         except Exception:
             pass
     return deleted_count, doc["source_name"]
-
-
-def clear_rag_memory(chat_id):
-    init_rag_db()
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        cursor = conn.execute("DELETE FROM rag_chunks WHERE chat_id = ?", (str(chat_id),))
-        conn.commit()
-        return cursor.rowcount
-
-
-
-
-def get_rag_only_mode(chat_id):
-    init_rag_db()
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT rag_only FROM rag_settings WHERE chat_id = ?",
-            (str(chat_id),)
-        ).fetchone()
-    return bool(row and row[0] == 1)
-
-
-def set_rag_only_mode(chat_id, enabled):
-    init_rag_db()
-    now = int(time.time())
-    with sqlite3.connect(RAG_DB_PATH) as conn:
-        conn.execute(
-            """
-            INSERT INTO rag_settings (chat_id, rag_only, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(chat_id) DO UPDATE SET
-                rag_only = excluded.rag_only,
-                updated_at = excluded.updated_at
-            """,
-            (str(chat_id), 1 if enabled else 0, now)
-        )
-        conn.commit()
 
 
 def remember_user_in_db(update):
@@ -1168,7 +900,202 @@ def build_model_keyboard(current_key=None):
         buttons.append([InlineKeyboardButton(label, callback_data=f"model:{key}")])
     return InlineKeyboardMarkup(buttons)
 
+def build_persistent_menu():
+    """
+    Нижнее постоянное меню Telegram.
+    Сделано совместимо со старыми версиями python-telegram-bot.
+    """
+    keyboard = [
+        ["🤖 Модель", "📚 Память", "ℹ️ Статус"],
+        ["⚙️ Настройки", "🧹 Сброс", "❓ Помощь"],
+    ]
 
+    try:
+        return ReplyKeyboardMarkup(
+            keyboard=keyboard,
+            resize_keyboard=True,
+            is_persistent=True,
+            input_field_placeholder="Напиши вопрос или выбери действие"
+        )
+    except TypeError:
+        # Для старых версий python-telegram-bot, где нет is_persistent/input_field_placeholder
+        return ReplyKeyboardMarkup(
+            keyboard=keyboard,
+            resize_keyboard=True
+        )
+
+
+def build_main_panel_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🤖 Модель", callback_data="ui:model"),
+            InlineKeyboardButton("📚 Память", callback_data="ui:memory"),
+        ],
+        [
+            InlineKeyboardButton("⚙️ Настройки", callback_data="ui:settings"),
+            InlineKeyboardButton("ℹ️ Статус", callback_data="ui:status"),
+        ],
+        [
+            InlineKeyboardButton("📄 Документы", callback_data="ui:rag_docs"),
+            InlineKeyboardButton("🔎 Поиск RAG", callback_data="ui:rag_search_help"),
+        ],
+        [
+            InlineKeyboardButton("🧹 Сбросить историю", callback_data="ui:reset_history"),
+        ],
+    ])
+
+
+def build_memory_panel_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📄 Документы", callback_data="ui:rag_docs"),
+            InlineKeyboardButton("📊 Статистика", callback_data="ui:rag_stats"),
+        ],
+        [
+            InlineKeyboardButton("📤 Экспорт", callback_data="ui:rag_export"),
+            InlineKeyboardButton("🗑 Очистить", callback_data="ui:rag_clear_help"),
+        ],
+        [
+            InlineKeyboardButton("🔒 RAG-only вкл/выкл", callback_data="ui:rag_only_toggle"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ Назад", callback_data="ui:main"),
+        ],
+    ])
+
+
+def safe_study_mode_available():
+    return callable(globals().get("get_study_mode")) and callable(globals().get("set_study_mode"))
+
+
+def safe_get_study_mode(chat_id):
+    fn = globals().get("get_study_mode")
+    if callable(fn):
+        try:
+            return bool(fn(chat_id))
+        except Exception:
+            return False
+    return False
+
+
+def safe_set_study_mode(chat_id, enabled):
+    fn = globals().get("set_study_mode")
+    if callable(fn):
+        fn(chat_id, enabled)
+        return True
+    return False
+
+
+def build_settings_panel_keyboard(chat_id):
+    current_model_key = user_selected_model.get(chat_id, DEFAULT_MODEL_KEY)
+    current_model_label = AVAILABLE_MODELS.get(current_model_key, AVAILABLE_MODELS[DEFAULT_MODEL_KEY])["label"]
+
+    rag_only = get_rag_only_mode(chat_id)
+    study_mode = safe_get_study_mode(chat_id)
+
+    rag_text = "✅ RAG-only" if rag_only else "⬜ RAG-only"
+    study_text = "✅ Study mode" if study_mode else "⬜ Study mode"
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(f"🤖 {current_model_label}", callback_data="ui:model"),
+        ],
+        [
+            InlineKeyboardButton(rag_text, callback_data="ui:rag_only_toggle"),
+            InlineKeyboardButton(study_text, callback_data="ui:study_toggle"),
+        ],
+        [
+            InlineKeyboardButton("📚 Память", callback_data="ui:memory"),
+            InlineKeyboardButton("ℹ️ Статус", callback_data="ui:status"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ Назад", callback_data="ui:main"),
+        ],
+    ])
+
+
+def build_answer_actions_keyboard():
+    """
+    Кнопки под ответом модели.
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔁 Регенерировать", callback_data="ui:regen"),
+            InlineKeyboardButton("🧠 Сохранить в RAG", callback_data="ui:remember_answer"),
+        ],
+        [
+            InlineKeyboardButton("🤖 Модель", callback_data="ui:model"),
+            InlineKeyboardButton("⚙️ Настройки", callback_data="ui:settings"),
+        ],
+    ])
+
+
+async def send_main_panel(message):
+    await message.reply_text(
+        "🏠 Главное меню\n\n"
+        "Выбери действие кнопками ниже или просто напиши вопрос.",
+        reply_markup=build_main_panel_keyboard()
+    )
+
+
+async def menu_command(update: Update, context):
+    effective_msg = update.effective_message
+    if not effective_msg:
+        return
+    if not await check_bot_access(update):
+        return
+
+    try:
+        await effective_msg.reply_text(
+            "✅ Нижнее меню включено.",
+            reply_markup=build_persistent_menu()
+        )
+    except Exception as e:
+        await effective_msg.reply_text(f"⚠️ Не удалось включить нижнее меню: {str(e)}")
+
+    await send_main_panel(effective_msg)
+
+
+async def safe_edit_final(thinking_msg, text, reply_markup=None):
+    """
+    Как safe_edit, но умеет прикреплять inline-кнопки под финальным ответом.
+    Если ответ длинный и режется на части — кнопки будут под последней частью.
+    """
+    raw_chunks = split_telegram_text(text)
+
+    for index, raw_chunk in enumerate(raw_chunks):
+        rendered, parse_mode = render_for_telegram(raw_chunk)
+        is_first = index == 0
+        is_last = index == len(raw_chunks) - 1
+        keyboard = reply_markup if is_last else None
+
+        try:
+            if is_first:
+                await thinking_msg.edit_text(
+                    rendered,
+                    parse_mode=parse_mode,
+                    disable_web_page_preview=True,
+                    reply_markup=keyboard
+                )
+            else:
+                await thinking_msg.reply_text(
+                    rendered,
+                    parse_mode=parse_mode,
+                    disable_web_page_preview=True,
+                    reply_markup=keyboard
+                )
+        except Exception:
+            fallback = clean_model_output(raw_chunk)
+            if is_first:
+                await thinking_msg.edit_text(
+                    fallback[:MAX_TELEGRAM_MESSAGE_CHARS],
+                    reply_markup=keyboard
+                )
+            else:
+                await thinking_msg.reply_text(
+                    fallback[:MAX_TELEGRAM_MESSAGE_CHARS],
+                    reply_markup=keyboard
+                )
 
 def split_telegram_text(text, max_chars=MAX_TELEGRAM_MESSAGE_CHARS):
     """Режет длинный текст на части, чтобы Telegram не падал на лимите 4096 символов."""
@@ -1402,7 +1329,16 @@ async def send_to_model(update: Update, context, user_content):
         conversation_history[chat_id].append({"role": "assistant", "content": full_response})
         trim_history(chat_id)
 
-        await safe_edit(thinking_msg, full_response)
+        if isinstance(user_content, str):
+            last_user_content[chat_id] = user_content
+
+        last_bot_response[chat_id] = full_response
+
+        await safe_edit_final(
+            thinking_msg,
+            full_response,
+            reply_markup=build_answer_actions_keyboard()
+        )
 
     except requests.exceptions.ConnectionError:
         if thinking_msg:
@@ -1486,95 +1422,6 @@ async def rag_stats_command(update: Update, context):
     lines.append("• /rag_search запрос — поиск по памяти")
 
     await effective_msg.reply_text("\n".join(lines))
-
-
-async def rag_docs_command(update: Update, context):
-    effective_msg = update.effective_message
-    if not effective_msg:
-        return
-    if not await check_bot_access(update):
-        return
-
-    chat_id = effective_msg.chat_id
-    documents = get_rag_documents(chat_id)
-
-    if not documents:
-        await effective_msg.reply_text("📚 В RAG-памяти пока нет документов.")
-        return
-
-    lines = ["📚 Документы в памяти:", ""]
-
-    for index, (source_name, chunks_count, first_added_at, last_added_at) in enumerate(documents, start=1):
-        last_added_text = time.strftime("%d.%m.%Y %H:%M", time.localtime(last_added_at))
-        lines.append(f"{index}. {source_name}")
-        lines.append(f"   Фрагментов: {chunks_count} | добавлен/обновлён: {last_added_text}")
-
-    lines.append("")
-    lines.append("Удалить документ можно так:")
-    lines.append("/rag_delete название_файла")
-    lines.append("или по номеру из списка:")
-    lines.append("/rag_delete 1")
-
-    await effective_msg.reply_text("\n".join(lines))
-
-
-async def rag_delete_command(update: Update, context):
-    effective_msg = update.effective_message
-    if not effective_msg:
-        return
-    if not await check_bot_access(update):
-        return
-
-    chat_id = effective_msg.chat_id
-    text = effective_msg.text or ""
-    parts = text.split(maxsplit=1)
-
-    if len(parts) < 2 or not parts[1].strip():
-        await effective_msg.reply_text(
-            "Напиши так:\n"
-            "/rag_delete название_файла\n\n"
-            "Пример:\n"
-            "/rag_delete rag_test.pdf\n\n"
-            "Можно удалить и по номеру из /rag_docs:\n"
-            "/rag_delete 1"
-        )
-        return
-
-    target = parts[1].strip()
-    documents = get_rag_documents(chat_id)
-
-    if not documents:
-        await effective_msg.reply_text("📚 В RAG-памяти пока нет документов.")
-        return
-
-    # Можно удалить по номеру из /rag_docs
-    if target.isdigit():
-        doc_index = int(target) - 1
-
-        if doc_index < 0 or doc_index >= len(documents):
-            await effective_msg.reply_text(
-                f"⚠️ Документа с номером {target} нет. Посмотри список через /rag_docs."
-            )
-            return
-
-        target = documents[doc_index][0]
-
-    deleted_count, matched_name = delete_rag_document(chat_id, target)
-
-    if deleted_count == 0 or matched_name is None:
-        available = "\n".join(f"• {doc_name}" for doc_name, *_ in documents[:10])
-        await effective_msg.reply_text(
-            "⚠️ Не нашёл такой документ в памяти.\n\n"
-            "Проверь название через /rag_docs.\n\n"
-            f"Сейчас есть:\n{available}"
-        )
-        return
-
-    await effective_msg.reply_text(
-        f"🗑 Удалил документ из RAG-памяти: {matched_name}\n"
-        f"Удалено фрагментов: {deleted_count}"
-    )
-
 
 
 async def rag_clear_command(update: Update, context):
@@ -1760,93 +1607,6 @@ async def admin_reload_models_command(update: Update, context):
     )
 
 
-async def handle_document(update: Update, context):
-    effective_msg = update.effective_message
-    if not effective_msg or not effective_msg.document:
-        return
-    if not await check_bot_access(update):
-        return
-
-    chat_id = effective_msg.chat_id
-    document = effective_msg.document
-    file_name = document.file_name or "document"
-    extension = os.path.splitext(file_name.lower())[1]
-
-    if extension not in SUPPORTED_DOCUMENT_EXTENSIONS:
-        await effective_msg.reply_text(
-            "⚠️ Я могу запоминать только PDF, TXT, MD, LOG, CSV, JSON и DOCX."
-        )
-        return
-
-    if document.file_size and document.file_size > RAG_MAX_FILE_MB * 1024 * 1024:
-        await effective_msg.reply_text(
-            f"⚠️ Файл слишком большой. Сейчас лимит: {RAG_MAX_FILE_MB} МБ."
-        )
-        return
-
-    temp_path = None
-
-    try:
-        status_msg = await effective_msg.reply_text(f"📄 Читаю файл: {file_name}")
-
-        telegram_file = await document.get_file()
-        file_bytes = await telegram_file.download_as_bytearray()
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
-            temp_file.write(file_bytes)
-            temp_path = temp_file.name
-
-        await status_msg.edit_text("🧠 Извлекаю текст и добавляю в RAG-память...")
-
-        extracted_text = extract_text_from_file(temp_path, file_name)
-        inserted_count = add_text_to_rag(chat_id, file_name, extracted_text)
-
-        if inserted_count == 0:
-            await status_msg.edit_text(
-                "⚠️ Не нашёл нового текста для запоминания. Возможно, файл пустой, сканированный или уже был добавлен."
-            )
-            return
-
-        total_chunks, _ = get_rag_stats(chat_id)
-        await status_msg.edit_text(
-            f"✅ Запомнил документ: {file_name}\n"
-            f"Добавлено фрагментов: {inserted_count}\n"
-            f"Всего в памяти этого чата: {total_chunks}\n\n"
-            "Теперь можешь спрашивать по этому документу обычным сообщением."
-        )
-
-        # Если пользователь отправил файл с подписью-вопросом — после запоминания сразу отвечаем на подпись.
-        if effective_msg.caption and effective_msg.caption.strip():
-            await send_to_model(update, context, effective_msg.caption.strip())
-
-    except Exception as e:
-        await effective_msg.reply_text(f"❌ Ошибка при обработке документа: {str(e)}")
-
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-
-
-async def handle_message(update: Update, context):
-    effective_msg = update.effective_message
-    if not effective_msg:
-        return
-    if not await check_bot_access(update):
-        return
-
-    chat_id = effective_msg.chat_id
-
-    if chat_id not in user_selected_model:
-        pending_user_content[chat_id] = effective_msg.text
-        await ask_model_choice(update, context, reason="restart")
-        return
-
-    await send_to_model(update, context, effective_msg.text)
-
-
 async def _handle_photo_impl(update: Update, context):
     effective_msg = update.effective_message
     if not effective_msg or not effective_msg.photo:
@@ -1881,119 +1641,6 @@ async def _handle_photo_impl(update: Update, context):
 
 async def handle_photo(update: Update, context):
     await run_queued(update, context, "обработка изображения", lambda: _handle_photo_impl(update, context))
-
-
-async def handle_voice(update: Update, context):
-    effective_msg = update.effective_message
-    if not effective_msg or not effective_msg.voice:
-        return
-    if not await check_bot_access(update):
-        return
-
-    chat_id = effective_msg.chat_id
-
-    try:
-        await effective_msg.reply_text("🎙 Распознаю голосовое сообщение...")
-
-        voice_file = await effective_msg.voice.get_file()
-        voice_bytes = await voice_file.download_as_bytearray()
-
-        temp_path = f"voice_{chat_id}_{int(time.time())}.ogg"
-        with open(temp_path, "wb") as f:
-            f.write(voice_bytes)
-
-        segments, info = whisper_model.transcribe(
-            temp_path,
-            language="ru",
-            task="transcribe",
-            beam_size=5,
-            best_of=5,
-            temperature=0.0,
-            vad_filter=True,
-            condition_on_previous_text=False,
-            initial_prompt="Это голосовое сообщение на русском языке. Распознавай речь точно, без перевода."
-        )
-        recognized_text = " ".join(segment.text for segment in segments).strip()
-
-        os.remove(temp_path)
-
-        if not recognized_text:
-            await effective_msg.reply_text("🤷 Не удалось распознать речь, попробуйте ещё раз.")
-            return
-
-        await effective_msg.reply_text(f"📝 Распознано: {recognized_text}")
-
-        if chat_id not in user_selected_model:
-            pending_user_content[chat_id] = recognized_text
-            await ask_model_choice(update, context, reason="restart")
-            return
-
-        await send_to_model(update, context, recognized_text)
-
-    except Exception as e:
-        await effective_msg.reply_text(f"❌ Ошибка при распознавании речи: {str(e)}")
-
-
-async def start(update: Update, context):
-    if not update.effective_message:
-        return
-    if not await check_bot_access(update):
-        return
-    await update.effective_message.reply_text(
-        "👋 Привет! Я локальный AI-ассистент.\n\n"
-        "💬 Просто напиши мне что-нибудь, и я отвечу.\n"
-        "🖼 Можешь отправить картинку — я её опишу.\n"
-        "🎙 Можешь отправить голосовое — я распознаю через Whisper.\n"
-        "📚 Можешь отправить PDF/TXT/DOCX — я добавлю документ в RAG-память.\n\n"
-        "Основные команды:\n"
-        "🔄 /reset — очистить историю диалога\n"
-        "🎛 /model — выбрать модель\n"
-        "🧠 /remember текст — добавить текст в RAG-память\n"
-        "📊 /rag_stats — статистика RAG-памяти\n"
-        "📚 /rag_docs — список документов в памяти\n"
-        "🗑 /rag_delete название_файла — удалить конкретный документ\n"
-        "🧹 /rag_clear — очистить всю RAG-память\n"
-        "📚 /rag_only_on — отвечать только по документам\n"
-        "🔓 /rag_only_off — обычный режим\n"
-        "📚 /rag_only_status — статус RAG-only\n"
-        "🔎 /rag_search запрос — поиск по памяти\n"
-        "ℹ️ /help — список возможностей"
-    )
-
-
-async def help_command(update: Update, context):
-    if not update.effective_message:
-        return
-    if not await check_bot_access(update):
-        return
-    await update.effective_message.reply_text(
-        "ℹ️ Что я умею:\n\n"
-        "💬 Отвечать на вопросы и поддерживать диалог\n"
-        "🖼 Анализировать изображения\n"
-        "🎙 Распознавать голосовые сообщения через Whisper\n"
-        "📚 Запоминать PDF/TXT/DOCX документы через RAG\n"
-        "📌 Показывать, какие фрагменты памяти использовал в ответе\n"
-        "🔎 Искать по памяти через гибридный поиск: embeddings + keyword\n"
-        "📚 Работать в режиме RAG-only, где ответы только по документам\n"
-        "🎛 Переключаться между локальными моделями\n\n"
-        "Команды:\n"
-        "🔄 /reset — очистить историю диалога\n"
-        "🎛 /model — выбрать модель\n"
-        "🧠 /remember текст — добавить текст в RAG-память\n"
-        "📊 /rag_stats — статистика RAG-памяти\n"
-        "📚 /rag_docs — список документов в памяти\n"
-        "🗑 /rag_delete название_файла — удалить конкретный документ\n"
-        "🧹 /rag_clear — очистить всю RAG-память\n"
-        "📚 /rag_only_on — включить ответы только по документам\n"
-        "🔓 /rag_only_off — выключить RAG-only\n"
-        "📚 /rag_only_status — проверить режим\n"
-        "🔎 /rag_search запрос — показать найденные фрагменты\n\n"
-        "Админ-команды:\n"
-        "🛠 /admin_stats — статистика бота\n"
-        "👥 /admin_users — последние пользователи\n"
-        "💾 /admin_db_size — размер и путь базы\n"
-        "🔄 /admin_reload_models — синхронизация LM Studio"
-    )
 
 
 async def reset_history(update: Update, context):
@@ -2057,7 +1704,161 @@ async def model_callback(update: Update, context):
         content = pending_user_content.pop(chat_id)
         await send_to_model(update, context, content)
 
+async def ui_callback(update: Update, context):
+    query = update.callback_query
+    await query.answer()
 
+    remember_user_in_db(update)
+
+    if ADMIN_ONLY_MODE and not is_admin(update):
+        await query.edit_message_text("⛔ Бот сейчас в закрытом режиме.")
+        return
+
+    chat_id = query.message.chat_id
+    data = query.data
+
+    if data == "ui:main":
+        await query.edit_message_text(
+            "🏠 Главное меню\n\nВыбери действие:",
+            reply_markup=build_main_panel_keyboard()
+        )
+        return
+
+    if data == "ui:settings":
+        await query.edit_message_text(
+            "⚙️ Настройки\n\n"
+            "Здесь можно быстро переключать режимы и модель.",
+            reply_markup=build_settings_panel_keyboard(chat_id)
+        )
+        return
+
+    if data == "ui:memory":
+        await query.edit_message_text(
+            "📚 RAG-память\n\n"
+            "Документы, поиск, экспорт и режим RAG-only.",
+            reply_markup=build_memory_panel_keyboard()
+        )
+        return
+
+    if data == "ui:model":
+        current_key = user_selected_model.get(chat_id, DEFAULT_MODEL_KEY)
+        await query.edit_message_text(
+            "🤖 Выбери модель:",
+            reply_markup=build_model_keyboard(current_key)
+        )
+        return
+
+    if data == "ui:status":
+        await query.message.reply_text("ℹ️ Проверяю статус...")
+        await status_command(update, context)
+        return
+
+    if data == "ui:rag_docs":
+        await query.message.reply_text("📄 Открываю список документов...")
+        await rag_docs_command(update, context)
+        return
+
+    if data == "ui:rag_stats":
+        await query.message.reply_text("📊 Показываю статистику RAG...")
+        await rag_stats_command(update, context)
+        return
+
+    if data == "ui:rag_export":
+        await query.message.reply_text("📤 Экспортирую RAG-память...")
+        await rag_export_command(update, context)
+        return
+
+    if data == "ui:rag_search_help":
+        await query.message.reply_text(
+            "🔎 Поиск по памяти:\n\n"
+            "Напиши команду так:\n"
+            "/rag_search что искать\n\n"
+            "Пример:\n"
+            "/rag_search код договора"
+        )
+        return
+
+    if data == "ui:rag_clear_help":
+        await query.message.reply_text(
+            "🗑 Чтобы очистить всю RAG-память этого чата, напиши:\n\n"
+            "/rag_clear"
+        )
+        return
+
+    if data == "ui:rag_only_toggle":
+        enabled = not get_rag_only_mode(chat_id)
+        set_rag_only_mode(chat_id, enabled)
+
+        text = (
+            "✅ RAG-only включён.\n"
+            "Теперь бот отвечает только по документам."
+            if enabled
+            else
+            "✅ RAG-only выключен.\n"
+            "Теперь бот снова может отвечать обычно."
+        )
+
+        await query.edit_message_text(
+            f"⚙️ Настройки\n\n{text}",
+            reply_markup=build_settings_panel_keyboard(chat_id)
+        )
+        return
+
+    if data == "ui:study_toggle":
+        if not safe_study_mode_available():
+            await query.answer("Study mode в этой версии кода не найден.", show_alert=True)
+            return
+
+        enabled = not safe_get_study_mode(chat_id)
+        safe_set_study_mode(chat_id, enabled)
+
+        text = (
+            "✅ Study mode включён."
+            if enabled
+            else "✅ Study mode выключен."
+        )
+
+        await query.edit_message_text(
+            f"⚙️ Настройки\n\n{text}",
+            reply_markup=build_settings_panel_keyboard(chat_id)
+        )
+        return
+
+    if data == "ui:reset_history":
+        conversation_history[chat_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        await query.edit_message_text(
+            "🧹 История диалога очищена.",
+            reply_markup=build_main_panel_keyboard()
+        )
+        return
+
+    if data == "ui:regen":
+        content = last_user_content.get(chat_id)
+
+        if not content:
+            await query.answer("Нет последнего запроса для регенерации.", show_alert=True)
+            return
+
+        await query.message.reply_text("🔁 Перегенерирую последний ответ...")
+        await send_to_model(update, context, content)
+        return
+
+    if data == "ui:remember_answer":
+        answer = last_bot_response.get(chat_id)
+
+        if not answer:
+            await query.answer("Нет последнего ответа для сохранения.", show_alert=True)
+            return
+
+        try:
+            inserted_count = add_text_to_rag(chat_id, "Сохранённый ответ бота", answer)
+            if inserted_count == 0:
+                await query.message.reply_text("⚠️ Ответ уже был в RAG или нечего сохранять.")
+            else:
+                await query.message.reply_text(f"✅ Сохранил ответ в RAG. Фрагментов: {inserted_count}")
+        except Exception as e:
+            await query.message.reply_text(f"❌ Ошибка сохранения в RAG: {str(e)}")
+        return
 
 # =========================================================
 # QoL UPGRADE PACK
@@ -2086,8 +1887,20 @@ def ensure_sqlite_column(conn, table, column, definition):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {definition}")
 
 
+_rag_db_ready = False
+
+
 def init_rag_db():
-    """Расширенная SQLite-база: chunks + documents + settings + users."""
+    """
+    Расширенная SQLite-база: chunks + documents + settings + users.
+    Схема и миграции идемпотентны, поэтому реально выполняем их только один раз за
+    время жизни процесса, а не при каждом обращении к RAG (это вызывалось на каждое
+    сообщение и делало лишний проход по базе).
+    """
+    global _rag_db_ready
+    if _rag_db_ready:
+        return
+
     migrate_old_rag_db_if_needed()
     os.makedirs(os.path.dirname(os.path.abspath(RAG_DB_PATH)), exist_ok=True)
     os.makedirs(RAG_FILES_DIR, exist_ok=True)
@@ -2162,6 +1975,7 @@ def init_rag_db():
         conn.commit()
 
     sync_documents_from_old_chunks()
+    _rag_db_ready = True
 
 
 def sync_documents_from_old_chunks():
@@ -3019,15 +2833,67 @@ async def _handle_document_impl(update: Update, context):
 async def handle_document(update: Update, context):
     await run_queued(update, context, "обработка документа", lambda: _handle_document_impl(update, context))
 
+async def handle_main_menu_button(update: Update, context):
+    """
+    Обрабатывает нажатия нижнего ReplyKeyboard-меню.
+    Возвращает True, если сообщение было кнопкой меню.
+    """
+    effective_msg = update.effective_message
+    if not effective_msg or not effective_msg.text:
+        return False
 
-async def _handle_message_impl(update: Update, context):
+    text = effective_msg.text.strip()
+
+    if text == "🤖 Модель":
+        await model_command(update, context)
+        return True
+
+    if text == "📚 Память":
+        await effective_msg.reply_text(
+            "📚 RAG-память\n\nВыбери действие:",
+            reply_markup=build_memory_panel_keyboard()
+        )
+        return True
+
+    if text == "ℹ️ Статус":
+        await status_command(update, context)
+        return True
+
+    if text == "⚙️ Настройки":
+        await effective_msg.reply_text(
+            "⚙️ Настройки\n\nВыбери, что поменять:",
+            reply_markup=build_settings_panel_keyboard(effective_msg.chat_id)
+        )
+        return True
+
+    if text == "🧹 Сброс":
+        chat_id = effective_msg.chat_id
+        conversation_history[chat_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        await effective_msg.reply_text(
+            "🧹 История диалога очищена.",
+            reply_markup=build_persistent_menu()
+        )
+        return True
+
+    if text == "❓ Помощь":
+        await help_command(update, context)
+        return True
+
+    return False
+
+async def handle_message(update: Update, context):
     effective_msg = update.effective_message
     if not effective_msg:
         return
     if not await check_bot_access(update):
         return
+
+    if await handle_main_menu_button(update, context):
+        return
+
     chat_id = effective_msg.chat_id
 
+    # Пользователь присылает исправленный текст после кнопки "✏️ Исправить" под голосовым.
     if chat_id in pending_voice_edit:
         token = pending_voice_edit.pop(chat_id)
         corrected = (effective_msg.text or "").strip()
@@ -3047,11 +2913,9 @@ async def _handle_message_impl(update: Update, context):
         pending_user_content[chat_id] = effective_msg.text
         await ask_model_choice(update, context, reason="restart")
         return
+
     await send_to_model(update, context, effective_msg.text)
 
-
-async def handle_message(update: Update, context):
-    await run_queued(update, context, "текстовый запрос", lambda: _handle_message_impl(update, context))
 
 
 async def _handle_voice_impl(update: Update, context):
@@ -3415,8 +3279,10 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("reset", reset_history))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("remember", remember_command))
     application.add_handler(CommandHandler("rag_stats", rag_stats_command))
+    application.add_handler(CallbackQueryHandler(ui_callback, pattern="^ui:"))
     application.add_handler(CommandHandler("rag_docs", rag_docs_command))
     application.add_handler(CommandHandler("rag_delete", rag_delete_command))
     application.add_handler(CommandHandler("rag_clear", rag_clear_command))

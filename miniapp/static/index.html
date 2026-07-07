@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+<title>Aurora · AI</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#080a09;
+  --panel:rgba(255,255,255,.028);
+  --panel-2:rgba(255,255,255,.05);
+  --brd:rgba(255,255,255,.075);
+  --brd-2:rgba(255,255,255,.13);
+  --ink:#e9efec;
+  --dim:#98a099;
+  --faint:#5f665f;
+  --em:#10b981;
+  --em-lt:#34d399;
+  --em-dp:#0b8f68;
+  --em-rgb:16,185,129;
+  --on-accent:#04140e;
+  --ok:#34d399; --warn:#e6b053; --err:#e06a6a;
+  --r-lg:20px; --r-md:15px; --r-sm:11px;
+  --ease:cubic-bezier(.4,0,.2,1);
+  --shadow:0 18px 44px -22px rgba(0,0,0,.8);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.5;letter-spacing:-.006em;
+  height:100dvh;overflow:hidden;position:relative;-webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;
+}
+.hidden{display:none!important}
+
+/* ============ calm background ============ */
+#bg{position:fixed;inset:0;z-index:0;overflow:hidden;background:
+   radial-gradient(140% 100% at 50% -20%, #0d1512 0%, #080a09 60%)}
+.mist{position:absolute;border-radius:50%;filter:blur(90px);opacity:.16;will-change:transform;background:radial-gradient(circle,var(--em),transparent 70%)}
+.m1{width:70vw;height:70vw;top:-20vh;left:-15vw}
+.m2{width:60vw;height:60vw;bottom:-25vh;right:-20vw;opacity:.12}
+.m3{width:50vw;height:50vw;top:30vh;left:20vw;opacity:.10;background:radial-gradient(circle,rgba(var(--em-rgb),.55),transparent 70%)}
+
+/* ============ topbar ============ */
+#topbar{position:relative;z-index:5;display:flex;align-items:center;gap:12px;flex-shrink:0;width:100%;
+  padding:calc(env(safe-area-inset-top) + 15px) 18px 8px;min-height:56px}
+#backBtn{width:38px;height:38px;border-radius:12px;display:none;place-items:center;cursor:pointer;flex-shrink:0;
+  background:var(--panel);border:1px solid var(--brd);color:var(--ink);transition:.2s var(--ease)}
+#backBtn.show{display:grid}
+#backBtn:active{transform:scale(.9)}
+#backBtn svg{width:18px;height:18px}
+#topbar .brand{display:flex;align-items:center;gap:10px;min-width:0}
+#topbar .logo{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;
+  background:linear-gradient(150deg,var(--em-dp),var(--em));box-shadow:0 0 18px -4px rgba(var(--em-rgb),.5)}
+#topbar .logo svg{width:16px;height:16px}
+#topbar .ttl{font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#topbar .sub{font-size:11px;color:var(--faint);margin-top:-2px}
+#topbar .spacer{flex:1}
+.statusdot{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--dim);
+  padding:6px 12px;border-radius:20px;background:var(--panel);border:1px solid var(--brd)}
+.statusdot .d{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.statusdot.on{color:var(--em-lt)}.statusdot.on .d{background:var(--em);box-shadow:0 0 8px var(--em)}
+.statusdot.off{color:var(--err)}.statusdot.off .d{background:var(--err)}
+
+/* ============ stage ============ */
+#stage{position:relative;z-index:2;flex:1;min-height:0;overflow:hidden;width:100%}
+.screen{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:6px 18px 118px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.screen::-webkit-scrollbar{display:none}
+.screen.in{animation:fade .32s var(--ease)}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.eyebrow{font-size:11.5px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.13em;margin:22px 4px 12px}
+.eyebrow:first-child{margin-top:8px}
+.muted{color:var(--dim);font-size:13px}
+.faint{color:var(--faint)}
+
+/* ============ primitives ============ */
+.card{background:var(--panel);border:1px solid var(--brd);border-radius:var(--r-lg);box-shadow:var(--shadow)}
+.tap{transition:transform .22s var(--ease),background .25s,border-color .25s}
+.tap:active{transform:scale(.98);background:var(--panel-2)}
+.btn{border:none;cursor:pointer;font-family:inherit;font-weight:600;font-size:14px;color:var(--on-accent);
+  background:var(--em);border-radius:12px;padding:12px 18px;transition:transform .2s var(--ease),filter .2s}
+.btn:active{transform:scale(.96)}
+.btn.ghost{background:var(--panel-2);border:1px solid var(--brd);color:var(--ink)}
+.btn.sm{padding:8px 13px;font-size:12.5px;border-radius:10px}
+.btn.danger{background:transparent;border:1px solid rgba(224,106,106,.4);color:var(--err)}
+
+/* ============ HOME ============ */
+.hero{padding:22px;border-radius:var(--r-lg);position:relative;overflow:hidden;margin-bottom:6px}
+.hero::before{content:"";position:absolute;inset:0;background:radial-gradient(90% 130% at 12% 0%,rgba(var(--em-rgb),.14),transparent 55%)}
+.hero .hi{position:relative;font-size:13px;color:var(--dim);font-weight:500}
+.hero h1{position:relative;font-size:24px;font-weight:700;margin:3px 0 16px;line-height:1.15}
+.hero .modelchip{position:relative;display:inline-flex;align-items:center;gap:9px;padding:9px 14px;border-radius:13px;
+  background:rgba(0,0,0,.3);border:1px solid var(--brd-2)}
+.hero .modelchip .d{width:8px;height:8px;border-radius:50%;background:var(--em);box-shadow:0 0 10px var(--em)}
+.hero .modelchip .lbl{font-weight:600;font-size:13px}
+
+.mini-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px}
+.mstat{padding:14px 12px;border-radius:var(--r-md);text-align:center}
+.mstat .num{font-size:21px;font-weight:700;line-height:1}
+.mstat .lbl{font-size:11px;color:var(--faint);margin-top:4px;font-weight:500}
+.mstat .num.em{color:var(--em-lt)}
+
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.tile{padding:17px;border-radius:var(--r-lg);cursor:pointer;display:flex;flex-direction:column;gap:12px}
+.tile .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:18px;
+  background:rgba(var(--em-rgb),.1);border:1px solid rgba(var(--em-rgb),.22);color:var(--em-lt)}
+.tile .nm{font-weight:600;font-size:15px}
+.tile .ds{font-size:11.5px;color:var(--faint);margin-top:1px}
+
+/* ============ CHAT ============ */
+#chat{padding:0;display:flex;flex-direction:column;inset:0}
+.chat-bar{display:flex;gap:9px;align-items:center;padding:4px 16px 8px}
+.segmented{display:flex;gap:3px;background:var(--panel);border:1px solid var(--brd);border-radius:13px;padding:4px;flex:1;position:relative}
+.segmented button{flex:1;border:none;background:transparent;color:var(--faint);font-weight:600;font-size:12px;padding:8px 4px;border-radius:9px;cursor:pointer;z-index:1;transition:color .3s;white-space:nowrap}
+.segmented button.active{color:var(--on-accent)}
+.segmented .glider{position:absolute;top:4px;bottom:4px;border-radius:9px;background:var(--em);z-index:0;transition:transform .35s var(--ease),width .35s var(--ease)}
+.iconbtn{width:39px;height:39px;border-radius:12px;display:grid;place-items:center;flex-shrink:0;cursor:pointer;
+  background:var(--panel);border:1px solid var(--brd);color:var(--dim);font-size:16px;transition:.2s var(--ease)}
+.iconbtn:active{transform:scale(.92)}
+.iconbtn svg{width:18px;height:18px}
+.session-item{display:flex;align-items:center;gap:12px;padding:14px 15px;border-radius:var(--r-md);margin-bottom:9px;cursor:pointer}
+.session-item.cur{border-color:rgba(var(--em-rgb),.5);background:rgba(var(--em-rgb),.06)}
+.session-item .si-ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:16px;flex-shrink:0;background:var(--panel-2);border:1px solid var(--brd);color:var(--em-lt)}
+.session-item .si-t{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.session-item .si-m{font-size:11.5px;color:var(--faint);margin-top:2px}
+.session-item .si-del{color:var(--faint);cursor:pointer;font-size:18px;padding:4px 8px;flex-shrink:0}
+
+.msgs{flex:1;overflow-y:auto;padding:12px 16px 6px;display:flex;flex-direction:column;gap:12px;scrollbar-width:none}
+.msgs::-webkit-scrollbar{display:none}
+.bubble{max-width:88%;padding:12px 15px;border-radius:18px;white-space:pre-wrap;word-wrap:break-word;font-size:14.5px;line-height:1.55;position:relative;animation:bIn .3s var(--ease)}
+@keyframes bIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.bubble.me{align-self:flex-end;background:var(--em);color:var(--on-accent);border-bottom-right-radius:6px;font-weight:500}
+.bubble.ai{align-self:flex-start;background:var(--panel-2);border:1px solid var(--brd);border-bottom-left-radius:6px}
+.bubble .src{display:block;margin-top:9px;padding-top:8px;border-top:1px solid var(--brd);font-size:11.5px;color:var(--faint)}
+.bubble.err{align-self:center;background:rgba(224,106,106,.1);border:1px solid rgba(224,106,106,.28);color:#e79a9a;font-size:13px}
+.think{display:inline-flex;gap:5px;align-items:center;height:15px}
+.think i{width:7px;height:7px;border-radius:50%;background:var(--em);opacity:.5;animation:tk 1.4s infinite}
+.think i:nth-child(2){animation-delay:.2s}.think i:nth-child(3){animation-delay:.4s}
+@keyframes tk{0%,70%,100%{opacity:.3}35%{opacity:1}}
+
+#edgeGlow{position:fixed;inset:0;z-index:8;pointer-events:none;opacity:0;
+  box-shadow:
+    inset 0 0 60px 2px rgba(var(--em-rgb),.42),
+    inset 0 0 140px 24px rgba(var(--em-rgb),.22),
+    inset 0 0 280px 70px rgba(var(--em-rgb),.12)}
+#edgeGlow.pulse{animation:edgePulse 3.4s ease-out forwards}
+@keyframes edgePulse{0%{opacity:0}14%{opacity:1}30%{opacity:1}62%{opacity:.32}100%{opacity:0}}
+
+.composer-wrap{padding:8px 14px calc(10px + env(safe-area-inset-bottom));margin-bottom:74px}
+.composer{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:20px;
+  background:rgba(10,14,12,.8);border:1px solid var(--brd);backdrop-filter:blur(16px);
+  transition:border-color .35s var(--ease),box-shadow .5s var(--ease)}
+.composer.focus{border-color:rgba(var(--em-rgb),.45);box-shadow:0 0 0 3px rgba(var(--em-rgb),.09),0 0 26px -8px rgba(var(--em-rgb),.45)}
+.composer textarea{flex:1;resize:none;background:transparent;border:none;color:var(--ink);font-size:15.5px;font-family:inherit;padding:10px 4px 10px 12px;max-height:128px;line-height:1.4}
+.composer textarea:focus{outline:none}
+.composer textarea::placeholder{color:var(--faint)}
+.sendbtn{width:42px;height:42px;border-radius:13px;flex-shrink:0;border:none;cursor:pointer;background:var(--em);
+  display:grid;place-items:center;box-shadow:0 6px 18px -8px rgba(var(--em-rgb),.7);transition:transform .25s var(--ease),filter .2s}
+.sendbtn:active{transform:scale(.9)}
+.sendbtn svg{width:19px;height:19px}
+.sendbtn:disabled{opacity:.5}
+.cbtn{width:34px;height:34px;border-radius:10px;flex-shrink:0;cursor:pointer;background:transparent;
+  border:none;color:var(--faint);display:grid;place-items:center;transition:.2s var(--ease)}
+.cbtn:active{transform:scale(.88);color:var(--dim)}
+.cbtn svg{width:20px;height:20px}
+.cbtn.active{background:var(--em);color:var(--on-accent)}
+.sendbtn.stop{background:var(--err)}
+.sendbtn.stop svg{display:none}
+.sendbtn.stop::after{content:"";width:13px;height:13px;border-radius:3px;background:#fff}
+.img-preview{display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px;border-radius:14px;background:var(--panel);border:1px solid var(--brd)}
+.img-preview img{width:46px;height:46px;border-radius:10px;object-fit:cover}
+.img-preview .nm{font-size:12.5px;color:var(--dim)}
+.img-preview .rm{margin-left:auto;color:var(--faint);cursor:pointer;font-size:22px;padding:0 8px;line-height:1}
+.rec-bar{display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:11px 14px;border-radius:14px;background:rgba(var(--em-rgb),.08);border:1px solid rgba(var(--em-rgb),.28);font-size:13px;color:var(--em-lt)}
+.rec-dot{width:10px;height:10px;border-radius:50%;background:var(--err);animation:recp 1.2s infinite}
+@keyframes recp{50%{opacity:.3}}
+.rec-hint{color:var(--faint);font-size:12px;margin-left:auto}
+.bubble img.att{max-width:190px;max-height:220px;border-radius:12px;margin-bottom:8px;display:block}
+.bubble.md p{margin:0 0 8px}.bubble.md p:last-child{margin-bottom:0}
+.bubble.md ul,.bubble.md ol{margin:6px 0 8px;padding-left:20px}
+.bubble.md li{margin:2px 0}
+.bubble.md h1,.bubble.md h2,.bubble.md h3{font-size:16px;font-weight:700;margin:10px 0 6px}
+.bubble.md code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:5px;font-size:.86em;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.bubble.md pre{background:rgba(0,0,0,.38);border:1px solid var(--brd);border-radius:10px;padding:11px 13px;overflow-x:auto;margin:8px 0}
+.bubble.md pre code{background:none;padding:0;line-height:1.5}
+.bubble.md a{color:var(--em-lt)}
+.bubble.md strong{font-weight:700}
+.bubble.md blockquote{border-left:2px solid var(--em);padding-left:10px;margin:8px 0;color:var(--dim)}
+.bubble.md table{border-collapse:collapse;margin:8px 0;font-size:.9em}
+.bubble.md th,.bubble.md td{border:1px solid var(--brd);padding:4px 8px}
+.msg-acts{display:flex;gap:4px;margin:2px 0 2px;align-self:flex-start;padding-left:2px}
+.msg-acts button{background:none;border:none;color:var(--faint);cursor:pointer;font-size:11.5px;padding:5px 9px;border-radius:8px;display:inline-flex;align-items:center;gap:4px;transition:.15s}
+.msg-acts button:active{background:var(--panel-2);color:var(--ink)}
+.bubble{font-size:var(--chat-fs,14.5px)}
+.fs-seg{display:flex;gap:4px;background:var(--panel-2);border:1px solid var(--brd);border-radius:12px;padding:4px;margin-top:13px}
+.fs-seg button{flex:1;border:none;background:transparent;color:var(--faint);font-weight:600;font-size:13px;padding:8px;border-radius:9px;cursor:pointer;transition:.2s}
+.fs-seg button.sel{background:var(--em);color:var(--on-accent)}
+
+/* ============ MEMORY ============ */
+.searchbox{position:relative;margin-bottom:13px}
+.searchbox svg{position:absolute;left:15px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--faint)}
+.searchbox input{width:100%;background:var(--panel);border:1px solid var(--brd);border-radius:14px;padding:13px 16px 13px 42px;color:var(--ink);font-size:15px;font-family:inherit;transition:border-color .25s}
+.searchbox input:focus{outline:none;border-color:rgba(var(--em-rgb),.4)}
+.dropzone{border:1.5px dashed var(--brd-2);border-radius:var(--r-lg);padding:24px 18px;text-align:center;cursor:pointer;transition:.28s var(--ease);margin-bottom:16px}
+.dropzone.over{border-color:var(--em);background:rgba(var(--em-rgb),.06)}
+.dropzone .dzic{width:46px;height:46px;border-radius:14px;margin:0 auto 11px;display:grid;place-items:center;font-size:21px;
+  background:rgba(var(--em-rgb),.1);border:1px solid rgba(var(--em-rgb),.24);color:var(--em-lt)}
+.dropzone .dzt{font-weight:600;font-size:14.5px}
+.dropzone .dzs{font-size:11.5px;color:var(--faint);margin-top:3px}
+.doccard{padding:15px;border-radius:var(--r-lg);margin-bottom:11px}
+.doccard .top{display:flex;gap:12px;align-items:flex-start}
+.doccard .fico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:18px;flex-shrink:0;background:var(--panel-2);border:1px solid var(--brd)}
+.doccard .nm{font-weight:600;font-size:14.5px;word-break:break-word}
+.doccard .mt{font-size:11.5px;color:var(--faint);margin-top:3px}
+.doccard .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+.resitem{padding:14px;border-radius:var(--r-md);margin-bottom:10px}
+.resitem .rh{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--faint);margin-bottom:7px}
+.resitem .sc{font-weight:700;color:var(--em-lt)}
+.progress{height:4px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;margin-top:9px}
+.progress>i{display:block;height:100%;background:var(--em);border-radius:4px;transition:width .5s var(--ease)}
+
+/* ============ MODELS ============ */
+.modelcard{padding:17px;border-radius:var(--r-lg);margin-bottom:11px;cursor:pointer;position:relative;transition:.25s var(--ease);border:1px solid var(--brd)}
+.modelcard.active{border-color:rgba(var(--em-rgb),.5);background:rgba(var(--em-rgb),.06)}
+.modelcard .mrow{display:flex;align-items:center;gap:13px}
+.modelcard .mic{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;font-size:20px;flex-shrink:0;background:var(--panel-2);border:1px solid var(--brd)}
+.modelcard.active .mic{background:rgba(var(--em-rgb),.14);border-color:rgba(var(--em-rgb),.3);color:var(--em-lt)}
+.modelcard .mn{font-weight:600;font-size:15.5px}
+.modelcard .md{font-size:11.5px;color:var(--faint);margin-top:2px}
+.modelcard .badge{font-size:10.5px;font-weight:700;padding:5px 10px;border-radius:16px;background:var(--em);color:var(--on-accent)}
+.speedbar{height:4px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;margin-top:12px}
+.speedbar>i{display:block;height:100%;border-radius:4px;background:var(--em);opacity:.85}
+.badge.loading{background:rgba(var(--em-rgb),.14);color:var(--em-lt);display:inline-flex;align-items:center;gap:6px}
+.mini-spin{width:12px;height:12px;border:2px solid rgba(var(--em-rgb),.3);border-top-color:var(--em-lt);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.modelcard.loading{border-color:rgba(var(--em-rgb),.35)}
+
+/* ============ TOOLS / toggles ============ */
+.setcard{padding:15px 17px;border-radius:var(--r-lg);margin-bottom:11px}
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.setrow .lead{display:flex;gap:12px;align-items:center}
+.setrow .lead .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:18px;flex-shrink:0;background:var(--panel-2);border:1px solid var(--brd)}
+.setrow .lead .t{font-weight:600}
+.setrow .lead .d{font-size:11.5px;color:var(--faint)}
+.switch{position:relative;width:50px;height:29px;flex-shrink:0;cursor:pointer}
+.switch input{display:none}
+.switch .tr{position:absolute;inset:0;border-radius:20px;background:rgba(255,255,255,.1);border:1px solid var(--brd);transition:.3s var(--ease)}
+.switch .th{position:absolute;top:3.5px;left:3.5px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.3s var(--ease);box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.switch input:checked + .tr{background:var(--em);border-color:transparent}
+.switch input:checked + .tr + .th{transform:translateX(21px);background:var(--on-accent)}
+.linkrow{display:flex;align-items:center;justify-content:space-between;padding:15px 17px;border-radius:var(--r-md);margin-bottom:10px;cursor:pointer}
+.linkrow .lead{display:flex;gap:12px;align-items:center}
+.linkrow .lead .ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:16px;background:var(--panel-2);border:1px solid var(--brd)}
+.linkrow .lead .t{font-weight:600}
+.linkrow .chev{color:var(--faint);font-size:18px}
+.swatches{display:flex;flex-wrap:wrap;gap:12px}
+.swatch{width:36px;height:36px;border-radius:11px;cursor:pointer;position:relative;border:2px solid transparent;transition:transform .18s var(--ease);box-shadow:0 4px 12px -6px rgba(0,0,0,.6)}
+.swatch:active{transform:scale(.88)}
+.swatch.sel{border-color:#fff}
+.swatch.sel::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;color:#04140e;font-size:15px;font-weight:800}
+.customrow{display:flex;align-items:center;justify-content:space-between;margin-top:15px;padding-top:14px;border-top:1px solid var(--brd);font-size:13.5px;color:var(--dim)}
+.customrow input[type=color]{width:46px;height:34px;border:1px solid var(--brd);background:none;border-radius:9px;cursor:pointer;padding:2px}
+
+/* ============ STATUS ============ */
+.statuscard{padding:15px 17px;border-radius:var(--r-md);margin-bottom:10px;display:flex;align-items:center;gap:13px}
+.statuscard .led{width:11px;height:11px;border-radius:50%;flex-shrink:0;position:relative}
+.led.ok{background:var(--em)}.led.ok::after{content:"";position:absolute;inset:-4px;border-radius:50%;background:var(--em);opacity:.35;animation:ring 2.4s infinite}
+.led.warn{background:var(--warn)}.led.err{background:var(--err)}.led.na{background:var(--faint)}
+@keyframes ring{0%{transform:scale(1);opacity:.35}100%{transform:scale(2.3);opacity:0}}
+.statuscard .nm{font-weight:600;font-size:14px}
+.statuscard .dt{font-size:11.5px;color:var(--faint)}
+.statuscard .tag{margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:14px}
+.tag.ok{background:rgba(var(--em-rgb),.14);color:var(--em-lt)}
+.tag.warn{background:rgba(230,176,83,.14);color:var(--warn)}
+.tag.err{background:rgba(224,106,106,.14);color:var(--err)}
+.tag.na{background:var(--panel-2);color:var(--dim)}
+.overall{text-align:center;margin-bottom:16px}
+.overall .pill{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:20px;font-weight:600;font-size:13px}
+.overall .pill.ok{background:rgba(var(--em-rgb),.12);color:var(--em-lt)}
+.overall .pill.warn{background:rgba(230,176,83,.12);color:var(--warn)}
+.overall .pill.err{background:rgba(224,106,106,.12);color:var(--err)}
+
+/* error / empty / skeleton */
+.errcard{text-align:center;padding:36px 24px;border-radius:var(--r-lg)}
+.errcard .bi{font-size:38px;margin-bottom:12px;opacity:.8}
+.errcard .et{font-weight:600;font-size:15px;margin-bottom:5px}
+.errcard .em{font-size:13px;color:var(--dim);margin-bottom:18px;line-height:1.5}
+.empty{text-align:center;color:var(--faint);padding:52px 24px}
+.empty .bi{font-size:40px;margin-bottom:13px;opacity:.6}
+.skel{border-radius:var(--r-md);background:var(--panel);border:1px solid var(--brd);overflow:hidden;position:relative;margin-bottom:10px}
+.skel::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);transform:translateX(-100%);animation:sh 1.5s infinite}
+@keyframes sh{to{transform:translateX(100%)}}
+
+.usercard{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:var(--r-md);margin-bottom:9px}
+.usercard .av{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-weight:700;font-size:16px;color:var(--on-accent);flex-shrink:0;background:var(--em)}
+
+/* ============ nav ============ */
+#nav{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(15px + env(safe-area-inset-bottom));z-index:20;
+  display:flex;gap:2px;padding:6px;border-radius:20px;background:rgba(10,13,11,.82);border:1px solid var(--brd-2);
+  backdrop-filter:blur(22px);box-shadow:var(--shadow)}
+#nav button{border:none;background:transparent;color:var(--faint);cursor:pointer;padding:8px 13px;border-radius:15px;
+  display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;font-weight:600;transition:color .3s;position:relative;min-width:52px}
+#nav button svg{width:20px;height:20px;transition:transform .3s var(--ease)}
+#nav button.active{color:var(--em-lt)}
+#nav button.active svg{transform:translateY(-1px)}
+#nav .navpill{position:absolute;top:6px;bottom:6px;border-radius:15px;background:rgba(var(--em-rgb),.14);z-index:-1;
+  transition:transform .4s var(--ease),width .4s var(--ease)}
+
+#toast{position:fixed;left:50%;bottom:98px;transform:translateX(-50%) translateY(16px);z-index:60;
+  background:rgba(16,20,17,.95);border:1px solid var(--brd-2);color:var(--ink);padding:11px 18px;border-radius:14px;
+  font-size:13px;font-weight:500;opacity:0;transition:.32s var(--ease);pointer-events:none;box-shadow:var(--shadow);max-width:82%;backdrop-filter:blur(16px)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div id="bg"><div class="mist m1"></div><div class="mist m2"></div><div class="mist m3"></div></div>
+<div id="edgeGlow"></div>
+
+<header id="topbar">
+  <div id="backBtn"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+  <div class="brand">
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2 6.5L20 12l-6 2.5L12 21l-2-6.5L4 12l6-2.5L12 3z" fill="#04140e"/></svg></div>
+    <div style="min-width:0"><div class="ttl" id="tbTitle">Aurora</div><div class="sub" id="tbSub">AI Assistant</div></div>
+  </div>
+  <div class="spacer"></div>
+  <div id="tbStatus"></div>
+</header>
+
+<div id="stage">
+
+  <!-- HOME -->
+  <section id="home" class="screen">
+    <div class="hero card">
+      <div class="hi" id="heroHi">Добро пожаловать</div>
+      <h1>Локальный AI-ассистент</h1>
+      <div class="modelchip"><span class="d"></span><span class="lbl" id="heroModel">—</span></div>
+    </div>
+    <div class="mini-stats">
+      <div class="mstat card"><div class="num em" id="msDocs">—</div><div class="lbl">Документы</div></div>
+      <div class="mstat card"><div class="num em" id="msChunks">—</div><div class="lbl">Фрагменты</div></div>
+      <div class="mstat card"><div class="num" id="msRag">—</div><div class="lbl">RAG-only</div></div>
+    </div>
+    <div class="eyebrow">Разделы</div>
+    <div class="tiles">
+      <div class="tile card tap" data-go="chat"><div class="ic">✦</div><div><div class="nm">Чат</div><div class="ds">Спросить AI</div></div></div>
+      <div class="tile card tap" data-go="memory"><div class="ic">◈</div><div><div class="nm">Память</div><div class="ds">Документы RAG</div></div></div>
+      <div class="tile card tap" data-go="models"><div class="ic">⚡</div><div><div class="nm">Модели</div><div class="ds">Выбор LLM</div></div></div>
+      <div class="tile card tap" data-go="status"><div class="ic">◉</div><div><div class="nm">Статус</div><div class="ds">Система</div></div></div>
+      <div class="tile card tap" data-go="tools"><div class="ic">⚙</div><div><div class="nm">Инструменты</div><div class="ds">Настройки</div></div></div>
+      <div class="tile card tap" data-go="memory"><div class="ic">↑</div><div><div class="nm">Загрузить</div><div class="ds">Новый файл</div></div></div>
+    </div>
+  </section>
+
+  <!-- CHAT -->
+  <section id="chat" class="screen hidden">
+    <div class="chat-bar">
+      <div class="segmented" id="modelSeg"><span class="glider"></span></div>
+      <div class="iconbtn" id="histBtn" title="История чатов"><svg viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+      <div class="iconbtn" id="newChatBtn" title="Новый чат"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+      <select id="modelSelect" class="hidden"></select>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    <div class="composer-wrap">
+      <div id="imgPreview" class="img-preview hidden"></div>
+      <div id="recBar" class="rec-bar hidden"><span class="rec-dot"></span><span id="recTime">0:00</span><span class="rec-hint">запись… нажми ⏹ для остановки</span></div>
+      <div class="composer" id="composer">
+        <button class="cbtn" id="attachBtn" title="Прикрепить фото"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+        <textarea id="chatInput" rows="1" placeholder="Спросить Aurora…"></textarea>
+        <button class="cbtn" id="micBtn" title="Голосовой ввод"><svg viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="sendbtn" id="sendBtn"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20V5M6 11l6-6 6 6" stroke="#04140e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <input type="file" id="imgInput" accept="image/*" class="hidden">
+    </div>
+  </section>
+
+  <!-- MEMORY -->
+  <section id="memory" class="screen hidden">
+    <div class="searchbox">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="docSearch" placeholder="Поиск по памяти…"/>
+    </div>
+    <div id="searchResults"></div>
+    <div class="dropzone card tap" id="dropzone">
+      <div class="dzic">↑</div><div class="dzt">Загрузить документ</div>
+      <div class="dzs">PDF · DOCX · TXT · MD · CSV · JSON · до 20 МБ</div>
+      <input type="file" id="fileInput" class="hidden" accept=".pdf,.docx,.txt,.md,.log,.csv,.json"/>
+    </div>
+    <div class="eyebrow" id="docsHead">Документы</div>
+    <div id="docsList"></div>
+  </section>
+
+  <!-- MODELS -->
+  <section id="models" class="screen hidden">
+    <div class="eyebrow">Доступные модели</div>
+    <div id="modelsList"></div>
+    <div class="muted" style="text-align:center;margin-top:6px">Модель загружается в LM Studio при первом сообщении</div>
+  </section>
+
+  <!-- TOOLS -->
+  <section id="tools" class="screen hidden">
+    <div class="eyebrow">Режимы ответа</div>
+    <div class="setcard card">
+      <div class="setrow"><div class="lead"><div class="ic">📚</div><div><div class="t">RAG-only</div><div class="d">Отвечать строго по документам</div></div></div>
+        <label class="switch"><input type="checkbox" id="ragOnly"><span class="tr"></span><span class="th"></span></label></div>
+    </div>
+    <div class="setcard card">
+      <div class="setrow"><div class="lead"><div class="ic">🎓</div><div><div class="t">Режим обучения</div><div class="d">Пошаговые объяснения</div></div></div>
+        <label class="switch"><input type="checkbox" id="studyMode"><span class="tr"></span><span class="th"></span></label></div>
+    </div>
+    <div class="eyebrow">Оформление</div>
+    <div class="setcard card">
+      <div style="font-weight:600;margin-bottom:13px">Акцентный цвет</div>
+      <div class="swatches" id="swatches"></div>
+      <label class="customrow"><span>Свой цвет</span><input type="color" id="customColor" value="#10b981"></label>
+    </div>
+    <div class="setcard card">
+      <div style="font-weight:600;margin-bottom:4px">Размер текста в чате</div>
+      <div class="fs-seg" id="fsSeg"><button data-fs="s">Мелкий</button><button data-fs="m">Средний</button><button data-fs="l">Крупный</button></div>
+    </div>
+    <div class="eyebrow">Диалог</div>
+    <div class="linkrow card tap" id="clearChatLink"><div class="lead"><div class="ic">☰</div><div><div class="t">История чатов</div></div></div><div class="chev">›</div></div>
+    <div class="eyebrow">Система</div>
+    <div class="linkrow card tap" data-go="status"><div class="lead"><div class="ic">◉</div><div><div class="t">Статус системы</div></div></div><div class="chev">›</div></div>
+    <div class="linkrow card tap" id="adminLink" style="display:none"><div class="lead"><div class="ic">🛠</div><div><div class="t">Админ-панель</div></div></div><div class="chev">›</div></div>
+    <div class="eyebrow">О приложении</div>
+    <div class="setcard card"><div class="muted" style="font-size:12.5px">Aurora · тёмная тема · изумрудный акцент. Всё работает локально на вашем ПК через LM Studio.</div></div>
+  </section>
+
+  <!-- STATUS -->
+  <section id="status" class="screen hidden">
+    <div class="eyebrow">Состояние системы</div>
+    <div id="statusBody"></div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="history" class="screen hidden">
+    <button class="btn" id="newChatTop" style="width:100%">＋ Новый чат</button>
+    <div class="eyebrow">Беседы</div>
+    <div id="sessionsList"></div>
+  </section>
+
+  <!-- ADMIN -->
+  <section id="admin" class="screen hidden">
+    <div class="eyebrow">Обзор бота</div>
+    <div class="mini-stats" id="adminStats" style="grid-template-columns:1fr 1fr"></div>
+    <div class="setcard card" style="margin-top:11px">
+      <div class="eyebrow" style="margin:0 0 8px">База данных</div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0"><span class="muted">Размер</span><span id="dbSize" class="faint">—</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;gap:12px"><span class="muted">Путь</span><span id="dbPath" class="faint" style="text-align:right;font-size:11.5px;word-break:break-all">—</span></div>
+    </div>
+    <div class="eyebrow">Пользователи</div>
+    <div id="usersList"></div>
+  </section>
+
+</div>
+
+<nav id="nav">
+  <span class="navpill"></span>
+  <button data-go="home" class="active"><svg viewBox="0 0 24 24" fill="none"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1v-9z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Главная</button>
+  <button data-go="chat"><svg viewBox="0 0 24 24" fill="none"><path d="M21 12a8 8 0 01-11.5 7.2L4 21l1.8-5.5A8 8 0 1121 12z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Чат</button>
+  <button data-go="memory"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Память</button>
+  <button data-go="models"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Модели</button>
+  <button data-go="tools"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Ещё</button>
+</nav>
+
+<div id="toast"></div>
+
+<script>
+const tg=window.Telegram?.WebApp;
+if(tg){tg.ready();tg.expand();try{tg.setHeaderColor?.("#080a09");tg.setBackgroundColor?.("#080a09");}catch(e){}}
+const INIT=tg?.initData||"";
+let ME=null, MODELS=[], CURRENT="home", BACK_TO=null;
+
+async function api(path,opts={}){
+  opts.headers=Object.assign({},opts.headers,{"X-Init-Data":INIT});
+  if(opts.body&&typeof opts.body!=="string"&&!(opts.body instanceof FormData)){opts.headers["Content-Type"]="application/json";opts.body=JSON.stringify(opts.body);}
+  const r=await fetch(path,opts);
+  if(!r.ok){const e=new Error("Ошибка "+r.status);e.status=r.status;try{const j=await r.json();if(j.detail)e.message=j.detail;}catch(x){}throw e;}
+  return r.json();
+}
+function toast(t,ms=2400){const el=document.getElementById("toast");el.textContent=t;el.classList.add("show");clearTimeout(el._t);if(ms>0)el._t=setTimeout(()=>el.classList.remove("show"),ms);}
+function haptic(s="light"){try{tg?.HapticFeedback?.impactOccurred(s);}catch(e){}}
+function notify(t){try{tg?.HapticFeedback?.notificationOccurred(t);}catch(e){}}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function fmtSize(b){if(!b)return"0 B";const u=["B","KB","MB","GB"];let i=0,n=b;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(1)+" "+u[i];}
+function fmtDate(ts){if(!ts)return"";return new Date(ts*1000).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});}
+const fico=e=>({".pdf":"📕",".docx":"📘",".txt":"📄",".md":"📝",".csv":"📊",".json":"🧾",".log":"📃"}[(e||"").toLowerCase()]||"📄");
+
+/* ---------- theme / accent color ---------- */
+const ACCENTS=[
+  {name:"Изумруд",hex:"#10b981"},{name:"Бирюза",hex:"#06b6d4"},{name:"Небо",hex:"#38bdf8"},
+  {name:"Индиго",hex:"#6366f1"},{name:"Фиолетовый",hex:"#a855f7"},{name:"Роза",hex:"#fb7185"},
+  {name:"Янтарь",hex:"#f59e0b"},{name:"Лайм",hex:"#84cc16"}
+];
+function hexToRgb(h){h=(h||"").replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h||"10b981",16);return[(n>>16)&255,(n>>8)&255,n&255];}
+function toHex(r,g,b){return '#'+[r,g,b].map(x=>Math.max(0,Math.min(255,Math.round(x))).toString(16).padStart(2,'0')).join('');}
+function mix(c,f,to){return c.map(v=>v+(to-v)*f);}
+function currentAccent(){try{return localStorage.getItem('accent')||"#10b981";}catch(e){return "#10b981";}}
+function applyAccent(hex,save=true){
+  const rgb=hexToRgb(hex);
+  const lt=mix(rgb,0.28,255), dp=mix(rgb,0.22,0);
+  const lum=(0.299*rgb[0]+0.587*rgb[1]+0.114*rgb[2])/255;
+  const on=lum<0.42?'#ffffff':'#04140e';
+  const r=document.documentElement.style;
+  r.setProperty('--em',hex);
+  r.setProperty('--em-lt',toHex(...lt));
+  r.setProperty('--em-dp',toHex(...dp));
+  r.setProperty('--em-rgb',rgb.join(','));
+  r.setProperty('--on-accent',on);
+  if(save){try{localStorage.setItem('accent',hex);}catch(e){}}
+}
+function initThemeUI(){
+  const wrap=document.getElementById('swatches');if(!wrap)return;
+  const cur=currentAccent().toLowerCase();wrap.innerHTML="";
+  ACCENTS.forEach(a=>{const s=document.createElement('div');
+    s.className='swatch'+(a.hex.toLowerCase()===cur?' sel':'');s.style.background=a.hex;s.title=a.name;
+    s.onclick=()=>{applyAccent(a.hex);haptic();const ci=document.getElementById('customColor');if(ci)ci.value=a.hex;initThemeUI();};
+    wrap.appendChild(s);});
+  const ci=document.getElementById('customColor');
+  if(ci){ci.value=/^#([0-9a-f]{6})$/i.test(cur)?cur:"#10b981";
+    ci.oninput=e=>{applyAccent(e.target.value);document.querySelectorAll('.swatch').forEach(x=>x.classList.remove('sel'));};}
+}
+applyAccent(currentAccent(),false); // применяем сохранённый цвет сразу, без мигания
+
+/* ---------- chat font size ---------- */
+const FS={s:"13px",m:"14.5px",l:"16.5px"};
+function currentFs(){try{return localStorage.getItem('chatfs')||"m";}catch(e){return "m";}}
+function applyFs(k,save=true){document.documentElement.style.setProperty('--chat-fs',FS[k]||FS.m);
+  document.querySelectorAll('#fsSeg button').forEach(b=>b.classList.toggle('sel',b.dataset.fs===k));
+  if(save){try{localStorage.setItem('chatfs',k);}catch(e){}}}
+function initFsUI(){const seg=document.getElementById('fsSeg');if(!seg)return;
+  seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{applyFs(b.dataset.fs);haptic();});applyFs(currentFs());}
+applyFs(currentFs(),false);
+
+/* ---------- navigation ---------- */
+const SCREENS=["home","chat","memory","models","tools","status","admin","history"];
+const META={home:["Aurora","AI Assistant"],chat:["Чат","Локальная модель"],memory:["Память","Документы RAG"],
+  models:["Модели","Выбор LLM"],tools:["Инструменты","Настройки"],status:["Статус","Здоровье системы"],admin:["Админ","Статистика бота"],history:["История","Беседы"]};
+const NAV=["home","chat","memory","models","tools"];
+const SECONDARY={status:"tools",admin:"tools",history:"chat"};
+function go(name){
+  if(SECONDARY[name]&&!(CURRENT in SECONDARY))BACK_TO=CURRENT;
+  CURRENT=name;
+  SCREENS.forEach(s=>document.getElementById(s).classList.add("hidden"));
+  const el=document.getElementById(name);el.classList.remove("hidden");
+  el.classList.remove("in");void el.offsetWidth;el.classList.add("in");
+  document.getElementById("tbTitle").textContent=META[name][0];
+  document.getElementById("tbSub").textContent=META[name][1];
+  document.getElementById("backBtn").classList.toggle("show",!!SECONDARY[name]);
+  const navName=SECONDARY[name]||name;
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("active",b.dataset.go===navName));
+  positionNavPill();haptic();
+  if(name==="chat")requestAnimationFrame(()=>{positionSeg();resizeWave();});
+  if(name==="history")loadSessions();
+  if(name==="memory")loadDocs();
+  if(name==="models")renderModels();
+  if(name==="status")loadStatus();
+  if(name==="admin")loadAdmin();
+}
+document.getElementById("backBtn").addEventListener("click",()=>go(BACK_TO||SECONDARY[CURRENT]||"home"));
+document.querySelectorAll("#nav button").forEach(b=>b.addEventListener("click",()=>go(b.dataset.go)));
+document.querySelectorAll("[data-go]").forEach(el=>{if(!el.closest("#nav"))el.addEventListener("click",()=>go(el.dataset.go));});
+function positionNavPill(){const a=document.querySelector("#nav button.active");if(!a)return;const p=document.querySelector(".navpill");p.style.width=a.offsetWidth+"px";p.style.transform=`translateX(${a.offsetLeft-6}px)`;}
+window.addEventListener("resize",()=>requestAnimationFrame(()=>{positionNavPill();positionSeg();resizeWave();}));
+if(tg?.onEvent)tg.onEvent("viewportChanged",()=>requestAnimationFrame(()=>{positionNavPill();resizeWave();}));
+
+/* ---------- init ---------- */
+async function init(){
+  try{ME=await api("/api/me");}catch(e){}
+  try{
+    const ov=await api("/api/overview");
+    document.getElementById("msDocs").textContent=ov.documents;
+    document.getElementById("msChunks").textContent=ov.chunks;
+    document.getElementById("msRag").textContent=ov.rag_only?"вкл":"выкл";
+    document.getElementById("heroModel").textContent=ov.active_model.label||"модель";
+    const n=ov.user?.first_name||"";document.getElementById("heroHi").textContent=n?("Привет, "+n):"Добро пожаловать";
+    setTbStatus(ov.lm_studio_online);
+  }catch(e){setTbStatus(false);}
+  if(ME){document.getElementById("ragOnly").checked=ME.settings.rag_only;document.getElementById("studyMode").checked=ME.settings.study_mode;if(ME.is_admin)document.getElementById("adminLink").style.display="";}
+  try{await loadModels();}catch(e){}
+  greet();requestAnimationFrame(positionNavPill);startWave();startMist();initThemeUI();initFsUI();initSessions();
+}
+
+/* ---------- background: smooth wandering emerald blobs (sum of sines) ---------- */
+function startMist(){
+  const els=[...document.querySelectorAll('.mist')];
+  const TAU=Math.PI*2;
+  const per=(minS,maxS)=>TAU/((minS+Math.random()*(maxS-minS))*1000); // частота из периода в секундах
+  const cfg=els.map(()=>({
+    ax:0.75+Math.random()*0.25, ay:0.75+Math.random()*0.25,
+    fx1:per(26,42), fx2:per(13,20), fy1:per(28,46), fy2:per(14,22), fs:per(40,70),
+    px:Math.random()*TAU, py:Math.random()*TAU, ps:Math.random()*TAU
+  }));
+  function frame(t){
+    const rx=window.innerWidth*0.24, ry=window.innerHeight*0.24;
+    els.forEach((el,i)=>{const c=cfg[i];
+      const x=(Math.sin(t*c.fx1+c.px)*0.72 + Math.sin(t*c.fx2+c.px*1.7)*0.28)*c.ax;
+      const y=(Math.cos(t*c.fy1+c.py)*0.72 + Math.sin(t*c.fy2+c.py*1.3)*0.28)*c.ay;
+      const s=1+Math.sin(t*c.fs+c.ps)*0.07;
+      el.style.transform=`translate(${(x*rx).toFixed(1)}px,${(y*ry).toFixed(1)}px) scale(${s.toFixed(3)})`;
+    });
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+function setTbStatus(online){document.getElementById("tbStatus").innerHTML=`<span class="statusdot ${online?'on':'off'}"><span class="d"></span>${online?'онлайн':'офлайн'}</span>`;}
+
+/* ---------- models ---------- */
+async function loadModels(){
+  const data=await api("/api/models");MODELS=data.models;
+  const sel=document.getElementById("modelSelect");sel.innerHTML="";
+  const seg=document.getElementById("modelSeg");seg.querySelectorAll("button").forEach(b=>b.remove());
+  MODELS.forEach(m=>{
+    const o=document.createElement("option");o.value=m.key;o.textContent=m.label;if(m.key===data.selected)o.selected=true;sel.appendChild(o);
+    const b=document.createElement("button");b.dataset.key=m.key;b.textContent=m.label.replace(/\s*\(.*\)/,"").replace(/^[^\wА-Яа-я]*/,"").trim()||m.key;
+    if(m.key===data.selected)b.classList.add("active");b.onclick=()=>pickModel(m.key);seg.appendChild(b);
+  });
+  positionSeg();
+}
+function positionSeg(){const seg=document.getElementById("modelSeg");if(!seg||seg.offsetWidth===0)return;const a=seg.querySelector("button.active");const g=seg.querySelector(".glider");if(!a){g.style.width="0";return;}g.style.width=a.offsetWidth+"px";g.style.transform=`translateX(${a.offsetLeft-4}px)`;}
+let switching=false, loadingKey=null;
+async function pickModel(key){
+  if(switching)return;switching=true;loadingKey=key;
+  const m=MODELS.find(x=>x.key===key);
+  // мгновенно подсвечиваем выбор
+  document.getElementById("modelSelect").value=key;
+  document.querySelectorAll("#modelSeg button").forEach(b=>b.classList.toggle("active",b.dataset.key===key));
+  positionSeg();haptic("medium");
+  document.getElementById("heroModel").textContent=m?.label||key;
+  renderModels();
+  toast("Заменяю модель…",0); // держим до завершения
+  try{
+    const r=await api("/api/models/select",{method:"POST",body:{key}}); // мгновенный ответ
+    if(r.loading){await pollModelLoad(key);}
+    else{await finishSwitch(true,null,key);}
+  }catch(e){loadingKey=null;switching=false;renderModels();toast(e.message,3400);}
+}
+async function pollModelLoad(key){
+  const start=Date.now();
+  while(Date.now()-start<150000){
+    await new Promise(r=>setTimeout(r,1500));
+    if(loadingKey!==key)return; // пользователь выбрал другую
+    let st;try{st=await api("/api/models/loadstatus");}catch(e){continue;}
+    if(st.key!==key)continue;
+    if(st.state==="ready"){await finishSwitch(true,null,key);return;}
+    if(st.state==="error"){await finishSwitch(false,st.error,key);return;}
+  }
+  // слишком долго — не блокируем, оставляем как выбранную
+  loadingKey=null;switching=false;renderModels();toast("Загрузка идёт дольше обычного…",3000);
+}
+async function finishSwitch(ok,err,key){
+  loadingKey=null;switching=false;
+  if(ok){toast("Модель заменена ✓",2600);notify("success");}
+  else{toast("Не удалось загрузить: "+(err||"LM Studio"),3600);notify("error");}
+  try{await loadModels();}catch(e){}
+  renderModels();
+}
+function renderModels(){
+  const wrap=document.getElementById("modelsList");const cur=document.getElementById("modelSelect").value;wrap.innerHTML="";
+  const speeds={fast:100,balanced:62,smart:30};const icons={fast:"⚡",balanced:"⚖️",smart:"🧠"};const types={fast:"Быстрая · низкая задержка",balanced:"Сбалансированная",smart:"Умная · глубже"};
+  MODELS.forEach(m=>{const active=m.key===cur;const sp=speeds[m.key]||50;const loading=m.key===loadingKey;
+    const c=document.createElement("div");c.className="modelcard card tap"+(active?" active":"")+(loading?" loading":"");
+    let badge="";
+    if(loading)badge='<span class="badge loading"><span class="mini-spin"></span>загрузка…</span>';
+    else if(active)badge='<span class="badge">Активна</span>';
+    c.innerHTML=`<div class="mrow"><div class="mic">${icons[m.key]||"🤖"}</div>
+      <div style="flex:1;min-width:0"><div class="mn">${esc(m.label.replace(/\s*\(.*\)/,''))}</div><div class="md">${types[m.key]||m.id}${m.loaded?' · в памяти':''}</div></div>
+      ${badge}</div><div class="speedbar"><i style="width:${sp}%"></i></div>`;
+    c.onclick=()=>pickModel(m.key);wrap.appendChild(c);
+  });
+}
+
+/* ---------- chat ---------- */
+const msgs=document.getElementById("msgs");const input=document.getElementById("chatInput");const composer=document.getElementById("composer");
+input.addEventListener("input",()=>{input.style.height="auto";input.style.height=Math.min(input.scrollHeight,128)+"px";});
+input.addEventListener("focus",()=>composer.classList.add("focus"));
+input.addEventListener("blur",()=>composer.classList.remove("focus"));
+input.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}});
+document.getElementById("sendBtn").addEventListener("click",()=>{if(sending)abortGen();else send();});
+document.getElementById("histBtn").addEventListener("click",()=>go("history"));
+document.getElementById("newChatBtn").addEventListener("click",newChat);
+document.getElementById("newChatTop").addEventListener("click",newChat);
+function greet(){addMsg("ai",`Привет${ME?.user?.first_name?", "+ME.user.first_name:""}. Я Aurora — ассистент на локальной модели. Задай вопрос, прикрепи фото или наговори голосом.`);}
+
+/* ---------- sessions / history ---------- */
+let currentSession=null;
+function saveCurSession(){try{if(currentSession)localStorage.setItem('session',currentSession);else localStorage.removeItem('session');}catch(e){}}
+async function initSessions(){
+  try{
+    const r=await api("/api/sessions");const list=r.sessions||[];
+    let saved=null;try{saved=+localStorage.getItem('session')||null;}catch(e){}
+    if(saved&&list.some(s=>s.id===saved))currentSession=saved;
+    else if(list.length)currentSession=list[0].id;
+    else currentSession=null;
+    saveCurSession();
+    if(currentSession)await openSession(currentSession,false);
+  }catch(e){}
+}
+async function newChat(){
+  try{const r=await api("/api/sessions",{method:"POST"});currentSession=r.id;saveCurSession();}
+  catch(e){currentSession=null;}
+  msgs.innerHTML="";clearImage();greet();haptic();
+  if(CURRENT!=="chat")go("chat");
+  toast("Новый чат");
+}
+async function openSession(sid,nav=true){
+  currentSession=sid;saveCurSession();
+  msgs.innerHTML="";clearImage();
+  try{const r=await api("/api/chat/history?session="+sid);
+    if(r.messages&&r.messages.length)r.messages.forEach(m=>{if(m.role==="user")addMsg("me",m.content);else{const b=addMsg("ai","");renderAI(b,m.content,"");}});
+    else greet();
+  }catch(e){greet();}
+  if(nav)go("chat");
+}
+async function loadSessions(){
+  const box=document.getElementById("sessionsList");box.innerHTML='<div class="skel" style="height:64px"></div><div class="skel" style="height:64px"></div>';
+  try{
+    const r=await api("/api/sessions");const list=r.sessions||[];
+    if(!list.length){box.innerHTML='<div class="empty"><div class="bi">☰</div>Пока нет бесед.<br>Нажми «Новый чат», чтобы начать.</div>';return;}
+    box.innerHTML="";
+    list.forEach(s=>{
+      const el=document.createElement("div");el.className="session-item card"+(s.id===currentSession?" cur":"");
+      el.innerHTML=`<div class="si-ic">💬</div><div style="flex:1;min-width:0"><div class="si-t">${esc(s.title)}</div><div class="si-m">${s.count} сообщ. · ${fmtDate(s.updated_at)}</div></div><div class="si-del">🗑</div>`;
+      el.querySelector(".si-t").parentElement.onclick=()=>openSession(s.id);
+      el.querySelector(".si-ic").onclick=()=>openSession(s.id);
+      el.querySelector(".si-del").onclick=ev=>{ev.stopPropagation();delSession(s.id,s.title);};
+      box.appendChild(el);
+    });
+  }catch(e){
+    const hint=e.status===404?"Сервер работает на старой версии. Перезапусти сервер (restart_server.bat), окно туннеля не закрывай.":esc(e.message);
+    box.innerHTML=`<div class="errcard card"><div class="bi">🔌</div><div class="et">История недоступна</div><div class="em">${hint}</div><button class="btn" id="retrySess">Повторить</button></div>`;
+    const rb=document.getElementById("retrySess");if(rb)rb.onclick=loadSessions;
+  }
+}
+function delSession(sid,title){
+  const go2=async()=>{try{await api("/api/sessions/"+sid,{method:"DELETE"});notify("success");
+    if(sid===currentSession){currentSession=null;saveCurSession();msgs.innerHTML="";greet();}
+    loadSessions();toast("Удалено");}catch(e){toast(e.message);}};
+  if(tg?.showConfirm)tg.showConfirm(`Удалить беседу «${title}»?`,ok=>{if(ok)go2();});else if(confirm("Удалить?"))go2();
+}
+
+function renderMD(raw){
+  if(!raw)return"";
+  const E=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  let text=String(raw).replace(/\r\n/g,"\n");
+  const code=[];
+  text=text.replace(/```[^\n]*\n?([\s\S]*?)```/g,(m,c)=>{code.push(E(c.replace(/\n$/,"")));return ""+(code.length-1)+"";});
+  function inl(str){
+    str=E(str);
+    str=str.replace(/`([^`]+)`/g,(m,c)=>'<code>'+c+'</code>');
+    str=str.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/__([^_]+)__/g,'<strong>$1</strong>');
+    str=str.replace(/(^|[^*])\*(?!\s)([^*\n]+?)\*(?!\*)/g,'$1<em>$2</em>');
+    str=str.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return str;
+  }
+  const L=text.split("\n"),out=[];let i=0;
+  const isUL=s=>/^\s*[-*+]\s+/.test(s),isOL=s=>/^\s*\d+\.\s+/.test(s),isH=s=>/^#{1,3}\s+/.test(s),isQ=s=>/^>\s?/.test(s),isC=s=>/^\d+$/.test(s);
+  while(i<L.length){
+    let ln=L[i];
+    const cm=ln.match(/^(\d+)$/);
+    if(cm){out.push('<pre><code>'+code[+cm[1]]+'</code></pre>');i++;continue;}
+    if(/^\s*$/.test(ln)){i++;continue;}
+    if(isH(ln)){const lv=ln.match(/^#+/)[0].length;out.push('<h'+lv+'>'+inl(ln.replace(/^#+\s+/,''))+'</h'+lv+'>');i++;continue;}
+    if(isQ(ln)){const q=[];while(i<L.length&&isQ(L[i])){q.push(inl(L[i].replace(/^>\s?/,"")));i++;}out.push('<blockquote>'+q.join("<br>")+'</blockquote>');continue;}
+    if(isUL(ln)){const it=[];while(i<L.length&&isUL(L[i])){it.push('<li>'+inl(L[i].replace(/^\s*[-*+]\s+/,""))+'</li>');i++;}out.push('<ul>'+it.join("")+'</ul>');continue;}
+    if(isOL(ln)){const it=[];while(i<L.length&&isOL(L[i])){it.push('<li>'+inl(L[i].replace(/^\s*\d+\.\s+/,""))+'</li>');i++;}out.push('<ol>'+it.join("")+'</ol>');continue;}
+    const p=[];while(i<L.length&&!/^\s*$/.test(L[i])&&!isH(L[i])&&!isUL(L[i])&&!isOL(L[i])&&!isQ(L[i])&&!isC(L[i])){p.push(inl(L[i]));i++;}
+    out.push('<p>'+p.join("<br>")+'</p>');
+  }
+  return out.join("");
+}
+function addMsg(role,text,opts={}){
+  const d=document.createElement("div");d.className="bubble "+(role==="me"?"me":"ai");
+  if(opts.image){const im=document.createElement("img");im.className="att";im.src=opts.image;d.appendChild(im);}
+  if(text){const s=document.createElement("span");s.textContent=text;d.appendChild(s);}
+  msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;
+}
+function renderAI(bubble,answer,srcText){
+  bubble.classList.add("md");bubble.innerHTML=renderMD(answer);
+  if(srcText){const s=document.createElement("span");s.className="src";s.textContent=srcText;bubble.appendChild(s);}
+}
+function addActions(rawText){
+  const bar=document.createElement("div");bar.className="msg-acts";
+  const cp=document.createElement("button");cp.innerHTML="⧉ Копировать";
+  cp.onclick=()=>{(navigator.clipboard?.writeText(rawText)||Promise.reject()).then(()=>{toast("Скопировано");haptic();}).catch(()=>toast("Не удалось скопировать"));};
+  const rg=document.createElement("button");rg.innerHTML="↻ Заново";rg.onclick=regenerate;
+  bar.appendChild(cp);bar.appendChild(rg);msgs.appendChild(bar);msgs.scrollTop=msgs.scrollHeight;
+}
+let sending=false, currentAbort=null, lastUserText="", lastUserImage=null, pendingImage=null;
+function setStop(on){document.getElementById("sendBtn").classList.toggle("stop",on);}
+function abortGen(){try{currentAbort?.abort();}catch(e){}}
+async function send(opts={}){
+  const text=(opts.text!==undefined?opts.text:input.value).trim();
+  const image=opts.image!==undefined?opts.image:pendingImage;
+  if((!text&&!image)||sending)return;
+  sending=true;setStop(true);
+  if(!opts.regen){addMsg("me",text,{image});lastUserText=text;lastUserImage=image;input.value="";input.style.height="auto";clearImage();}
+  haptic("medium");glowPulse();
+  const ai=addMsg("ai","");const think=document.createElement("span");think.className="think";think.innerHTML="<i></i><i></i><i></i>";ai.appendChild(think);
+  let answer="",srcText="";currentAbort=new AbortController();
+  try{
+    const resp=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json","X-Init-Data":INIT},body:JSON.stringify({message:text,image,regen:!!opts.regen,session_id:currentSession}),signal:currentAbort.signal});
+    if(!resp.ok)throw new Error("Ошибка "+resp.status);
+    const rd=resp.body.getReader();const dec=new TextDecoder();let buf="";
+    while(true){const{value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
+      while((i=buf.indexOf("\n"))>=0){const line=buf.slice(0,i).trim();buf=buf.slice(i+1);if(!line)continue;
+        let ev;try{ev=JSON.parse(line);}catch(e){continue;}
+        if(ev.type==="session"){currentSession=ev.id;saveCurSession();}
+        else if(ev.type==="token"){if(think.parentNode)think.remove();answer+=ev.text;ai.textContent=answer;msgs.scrollTop=msgs.scrollHeight;}
+        else if(ev.type==="sources"){srcText="📎 "+ev.sources.map(s=>`${s.source_name} · фр.${s.chunk_index}`).join(" · ");}
+        else if(ev.type==="error"){if(think.parentNode)think.remove();ai.className="bubble err";ai.textContent=ev.text;notify("error");}
+      }}
+    if(think.parentNode)think.remove();
+    if(ai.className.indexOf("err")<0){
+      if(answer){renderAI(ai,answer,srcText);addActions(answer);notify("success");}
+      else ai.textContent="(пустой ответ)";
+    }
+  }catch(e){
+    if(think.parentNode)think.remove();
+    if(e.name==="AbortError"){if(answer){renderAI(ai,answer,srcText);addActions(answer);}else ai.remove();toast("Остановлено");}
+    else{ai.className="bubble err";ai.textContent="Ошибка: "+e.message;}
+  }
+  finally{sending=false;setStop(false);currentAbort=null;msgs.scrollTop=msgs.scrollHeight;}
+}
+function regenerate(){
+  if(sending)return;
+  const acts=[...msgs.querySelectorAll('.msg-acts')].pop();if(acts)acts.remove();
+  const last=[...msgs.querySelectorAll('.bubble.ai')].pop();if(last)last.remove();
+  send({regen:true,text:lastUserText,image:lastUserImage});
+}
+
+/* image attach */
+const imgInput=document.getElementById("imgInput");
+document.getElementById("attachBtn").addEventListener("click",()=>imgInput.click());
+imgInput.addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{pendingImage=r.result;showImg(f.name);};r.readAsDataURL(f);imgInput.value="";});
+function showImg(name){const p=document.getElementById("imgPreview");p.classList.remove("hidden");p.innerHTML="";
+  const im=document.createElement("img");im.src=pendingImage;const nm=document.createElement("span");nm.className="nm";nm.textContent=(name||"изображение").slice(0,24);
+  const rm=document.createElement("span");rm.className="rm";rm.textContent="×";rm.onclick=clearImage;p.appendChild(im);p.appendChild(nm);p.appendChild(rm);
+  document.getElementById("attachBtn").classList.add("active");}
+function clearImage(){pendingImage=null;const p=document.getElementById("imgPreview");p.classList.add("hidden");p.innerHTML="";document.getElementById("attachBtn").classList.remove("active");}
+
+/* voice input */
+let mediaRec=null, recChunks=[], recTimer=null, recSecs=0;
+document.getElementById("micBtn").addEventListener("click",toggleRec);
+async function toggleRec(){
+  if(mediaRec&&mediaRec.state==="recording"){mediaRec.stop();return;}
+  if(!navigator.mediaDevices?.getUserMedia){toast("Микрофон недоступен");return;}
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRec=new MediaRecorder(stream);recChunks=[];
+    mediaRec.ondataavailable=e=>{if(e.data.size)recChunks.push(e.data);};
+    mediaRec.onstop=async()=>{
+      stream.getTracks().forEach(t=>t.stop());stopRecUI();
+      const blob=new Blob(recChunks,{type:mediaRec.mimeType||"audio/webm"});
+      if(blob.size<500){toast("Слишком коротко");return;}
+      toast("Распознаю…",0);
+      try{const fd=new FormData();fd.append("file",blob,"voice.webm");const r=await api("/api/transcribe",{method:"POST",body:fd});
+        document.getElementById("toast").classList.remove("show");
+        if(r.text){input.value=(input.value?input.value+" ":"")+r.text;input.dispatchEvent(new Event("input"));input.focus();haptic();}
+        else toast("Ничего не распознал");
+      }catch(e){toast(e.message,3400);}
+    };
+    mediaRec.start();startRecUI();haptic("medium");
+  }catch(e){toast("Нет доступа к микрофону");}
+}
+function startRecUI(){document.getElementById("micBtn").classList.add("active");const bar=document.getElementById("recBar");bar.classList.remove("hidden");recSecs=0;document.getElementById("recTime").textContent="0:00";
+  recTimer=setInterval(()=>{recSecs++;const m=Math.floor(recSecs/60),s=recSecs%60;document.getElementById("recTime").textContent=m+":"+String(s).padStart(2,"0");},1000);}
+function stopRecUI(){document.getElementById("micBtn").classList.remove("active");document.getElementById("recBar").classList.add("hidden");clearInterval(recTimer);}
+
+
+/* ---------- edge glow pulse on send ---------- */
+const edgeGlow=document.getElementById("edgeGlow");
+function glowPulse(){ if(!edgeGlow)return; edgeGlow.classList.remove("pulse"); void edgeGlow.offsetWidth; edgeGlow.classList.add("pulse"); }
+function resizeWave(){}   // совместимость со старыми вызовами (волна удалена)
+function startWave(){}
+
+/* ---------- memory ---------- */
+async function loadDocs(){
+  const list=document.getElementById("docsList");const head=document.getElementById("docsHead");
+  list.innerHTML='<div class="skel" style="height:84px"></div><div class="skel" style="height:84px"></div>';
+  try{
+    const data=await api("/api/documents");
+    if(!data.documents.length){head.style.display="none";list.innerHTML='<div class="empty"><div class="bi">◈</div>Память пуста.<br>Перетащи файл в зону выше или отправь боту.</div>';return;}
+    head.style.display="";head.textContent=`Документы · ${data.documents.length} · ${data.total_chunks} фр.`;list.innerHTML="";
+    data.documents.forEach(d=>{
+      const c=document.createElement("div");c.className="doccard card";
+      c.innerHTML=`<div class="top"><div class="fico">${fico(d.file_ext)}</div>
+        <div style="flex:1;min-width:0"><div class="nm">${esc(d.source_name)}</div>
+        <div class="mt">${(d.file_ext||"?").replace(".","")} · ${fmtSize(d.file_size)} · ${d.chunks_count} фр. · ${fmtDate(d.updated_at)}</div>
+        ${d.summary?`<div class="muted" style="margin-top:8px">${esc(d.summary.slice(0,130))}${d.summary.length>130?"…":""}</div>`:""}</div></div>
+        <div class="acts"></div>`;
+      const acts=c.querySelector(".acts");
+      const pv=btn("Просмотр","ghost");pv.onclick=()=>showDoc(d.id);acts.appendChild(pv);
+      if(d.saved_path){const dl=btn("Скачать","ghost");dl.onclick=()=>window.open(`/api/documents/${d.id}/download?init_data=`+encodeURIComponent(INIT),"_blank");acts.appendChild(dl);}
+      const del=btn("Удалить","danger");del.onclick=()=>delDoc(d.id,d.source_name);acts.appendChild(del);
+      list.appendChild(c);
+    });
+  }catch(e){list.innerHTML=`<div class="errcard card"><div class="bi">⚠</div><div class="et">Не удалось загрузить</div><div class="em">${esc(e.message)}</div></div>`;}
+}
+function btn(t,cls){const b=document.createElement("button");b.className="btn sm "+(cls||"");b.textContent=t;return b;}
+async function showDoc(id){haptic();try{const d=await api("/api/documents/"+id);let t=`${d.chunks_count} фрагментов · ${fmtSize(d.file_size)}\n\n`;if(d.summary)t+="Содержание:\n"+d.summary+"\n\n";t+="Начало:\n"+(d.preview_chunks.map(c=>c.text).join("\n\n").slice(0,700));if(tg?.showPopup)tg.showPopup({title:d.source_name.slice(0,60),message:t.slice(0,480),buttons:[{type:"close"}]});else alert(t);}catch(e){toast(e.message);}}
+function delDoc(id,name){const g=async()=>{try{await api("/api/documents/"+id,{method:"DELETE"});notify("success");toast("Удалено");loadDocs();refreshCounts();}catch(e){toast(e.message);}};if(tg?.showConfirm)tg.showConfirm(`Удалить «${name}»?`,ok=>{if(ok)g();});else if(confirm(`Удалить «${name}»?`))g();}
+const dz=document.getElementById("dropzone");const fileInput=document.getElementById("fileInput");
+dz.addEventListener("click",()=>fileInput.click());
+fileInput.addEventListener("change",e=>{if(e.target.files[0])upload(e.target.files[0]);fileInput.value="";});
+["dragenter","dragover"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("over");}));
+dz.addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)upload(f);});
+async function upload(file){const dzt=dz.querySelector(".dzt");const orig=dzt.textContent;dzt.textContent="Загрузка…";haptic("medium");
+  try{const fd=new FormData();fd.append("file",file);const r=await api("/api/upload",{method:"POST",body:fd});
+    if(r.status==="duplicate")toast("Файл уже в памяти");else{toast(`Добавлено: +${r.inserted} фр.`);notify("success");}loadDocs();refreshCounts();
+  }catch(e){toast(e.message);notify("error");}finally{dzt.textContent=orig;}}
+async function refreshCounts(){try{const ov=await api("/api/overview");document.getElementById("msDocs").textContent=ov.documents;document.getElementById("msChunks").textContent=ov.chunks;}catch(e){}}
+let stimer;
+document.getElementById("docSearch").addEventListener("input",e=>{clearTimeout(stimer);const q=e.target.value.trim();const box=document.getElementById("searchResults");
+  if(q.length<2){box.innerHTML="";return;}
+  stimer=setTimeout(async()=>{box.innerHTML='<div class="skel" style="height:66px"></div>';
+    try{const data=await api("/api/search?q="+encodeURIComponent(q));
+      if(!data.results.length){box.innerHTML='<div class="muted" style="padding:0 4px 12px">Ничего не найдено</div>';return;}
+      box.innerHTML='<div class="eyebrow" style="margin-top:4px">Найдено</div>';
+      data.results.forEach(r=>{const pct=Math.max(5,Math.min(100,Math.round(r.score*100)));const c=document.createElement("div");c.className="resitem card";
+        c.innerHTML=`<div class="rh"><span>${esc(r.source_name)} · фр.${r.chunk_index+1}</span><span class="sc">${pct}%</span></div><div style="font-size:13px">${esc(r.text)}</div><div class="progress"><i style="width:${pct}%"></i></div>`;box.appendChild(c);});
+    }catch(err){box.innerHTML=`<div class="muted">${err.message}</div>`;}
+  },380);
+});
+
+/* ---------- tools ---------- */
+document.getElementById("ragOnly").addEventListener("change",async e=>{try{await api("/api/settings",{method:"POST",body:{key:"rag_only",value:e.target.checked}});haptic();toast(e.target.checked?"RAG-only включён":"RAG-only выключен");document.getElementById("msRag").textContent=e.target.checked?"вкл":"выкл";}catch(err){toast(err.message);e.target.checked=!e.target.checked;}});
+document.getElementById("studyMode").addEventListener("change",async e=>{try{await api("/api/settings",{method:"POST",body:{key:"study_mode",value:e.target.checked}});haptic();toast(e.target.checked?"Обучение включено":"Обучение выключено");}catch(err){toast(err.message);e.target.checked=!e.target.checked;}});
+document.getElementById("clearChatLink").addEventListener("click",()=>go("history"));
+document.getElementById("adminLink").addEventListener("click",()=>go("admin"));
+
+/* ---------- status: loading / success / error + retry ---------- */
+async function loadStatus(){
+  const body=document.getElementById("statusBody");
+  body.innerHTML='<div class="skel" style="height:60px"></div><div class="skel" style="height:60px"></div><div class="skel" style="height:60px"></div><div class="skel" style="height:60px"></div>';
+  const ctrl=new AbortController();const to=setTimeout(()=>ctrl.abort(),9000);
+  try{
+    const s=await api("/api/status",{signal:ctrl.signal});clearTimeout(to);
+    const om={ok:["ok","Всё работает"],warn:["warn","Есть предупреждения"],err:["err","Есть проблемы"]}[s.overall]||["warn","—"];
+    const tagText={ok:"OK",warn:"Внимание",err:"Ошибка",na:"—"};
+    let html=`<div class="overall"><span class="pill ${om[0]}">${om[1]}</span></div>`;
+    s.components.forEach(c=>{html+=`<div class="statuscard card"><span class="led ${c.status}"></span>
+      <div style="flex:1;min-width:0"><div class="nm">${esc(c.name)}</div><div class="dt">${esc(c.detail)}</div></div>
+      <span class="tag ${c.status}">${tagText[c.status]||c.status}</span></div>`;});
+    body.innerHTML=html;
+  }catch(e){
+    clearTimeout(to);
+    const is404=e.status===404;const aborted=e.name==="AbortError";
+    body.innerHTML=`<div class="errcard card"><div class="bi">${is404?"🔌":"⚠"}</div>
+      <div class="et">${is404?"Статус недоступен":aborted?"Превышено время ожидания":"Не удалось получить статус"}</div>
+      <div class="em">${is404?"Сервер mini app запущен на старой версии. Перезапустите run_miniapp.bat, чтобы обновить бэкенд.":aborted?"Сервер не ответил за 9 секунд. Проверьте, что он запущен.":esc(e.message)}</div>
+      <button class="btn" id="retryStatus">Повторить</button></div>`;
+    document.getElementById("retryStatus").onclick=loadStatus;
+  }
+}
+
+/* ---------- admin ---------- */
+async function loadAdmin(){
+  if(!ME?.is_admin){go("tools");return;}
+  const grid=document.getElementById("adminStats");grid.innerHTML='<div class="skel" style="height:70px"></div><div class="skel" style="height:70px"></div>';
+  try{
+    const s=await api("/api/admin/stats");
+    grid.innerHTML=`<div class="mstat card"><div class="num em">${s.users_count}</div><div class="lbl">Пользователей</div></div>
+      <div class="mstat card"><div class="num em">${s.chats_with_chunks}</div><div class="lbl">Чатов с памятью</div></div>
+      <div class="mstat card"><div class="num">${s.total_sources}</div><div class="lbl">Документов</div></div>
+      <div class="mstat card"><div class="num">${s.total_chunks}</div><div class="lbl">Фрагментов</div></div>`;
+    grid.style.gridTemplateColumns="1fr 1fr";
+    document.getElementById("dbSize").textContent=s.db_size;document.getElementById("dbPath").textContent=s.db_path;
+    const data=await api("/api/admin/users?limit=30");const ul=document.getElementById("usersList");ul.innerHTML="";
+    if(!data.users.length){ul.innerHTML='<div class="empty">Нет пользователей</div>';return;}
+    data.users.forEach(u=>{const name=[u.first_name,u.last_name].filter(Boolean).join(" ")||"—";const un=u.username?"@"+u.username:("id "+(u.user_id||u.chat_id));const ini=(name.trim()[0]||"?").toUpperCase();
+      const c=document.createElement("div");c.className="usercard card";
+      c.innerHTML=`<div class="av">${esc(ini)}</div><div style="flex:1;min-width:0"><div style="font-weight:600">${esc(name)}</div><div class="dt" style="font-size:11.5px;color:var(--faint)">${esc(un)} · ${fmtDate(u.last_seen_at)}</div></div><span class="tag ok">${u.message_count}</span>`;ul.appendChild(c);});
+  }catch(e){grid.innerHTML=`<div class="errcard card"><div class="bi">⚠</div><div class="et">Ошибка</div><div class="em">${esc(e.message)}</div><button class="btn" onclick="loadAdmin()">Повторить</button></div>`;}
+}
+
+init();
+</script>
+</body>
+</html>

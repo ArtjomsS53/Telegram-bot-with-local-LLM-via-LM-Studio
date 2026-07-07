@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+# Ниже — уже есть в основном requirements.txt проекта, нужны и серверу mini app:
+requests
+python-dotenv
+numpy
+sentence-transformers
+# для загрузки/чтения документов из mini app:
+pypdf
+pymupdf
+python-docx
+# для голосового ввода (транскрипция):
+faster-whisper

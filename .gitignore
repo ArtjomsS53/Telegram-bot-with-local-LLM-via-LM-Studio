@@ -6,3 +6,5 @@ venv/
 backups/
 rag_files/
 *.sqlite3
+# Скачивается вручную по инструкции в miniapp/tunnel_cloudflare.bat, не должен лежать в репозитории (~50 МБ бинарник).
+miniapp/cloudflared.exe
